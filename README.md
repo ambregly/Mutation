@@ -89,8 +89,21 @@ synonymes) :
 
 - `Fichier_CHU` : `Query`, `#chr`, `start`, `ID`, `ref`, `alt`, `patient id`,
   `sample_id` ;
-- `Results_patientJB` : `Query`, `Position` (formats `13:28034317`,
-  `chr13:28034317` ou position seule acceptes).
+- `Results_patientJB` : `Query`, `Position`. La colonne `Position` peut encoder
+  la **coordonnee complete** `chr-pos-ref-alt`
+  (ex. `19-33301387-C-CGGAAGATGCCCCG`), ce qui permet une correspondance
+  **exacte**. Les formats `13:28034317`, `chr13:28034317` ou une position seule
+  sont aussi acceptes (correspondance par position).
+
+Si l'en-tete d'un fichier de reference ne compte pas le meme nombre de colonnes
+que les lignes de donnees, le lecteur **scanne la ligne** pour retrouver la
+cellule qui ressemble a une coordonnee (`chr-pos-ref-alt` ou `chr:pos`).
+
+> **Multi-genes** : le pipeline produit un VCF par gene/amplicon (FLT3 sur le
+> chr13, CEBPA sur le chr19, etc.). Pour retrouver une mutation d'un gene donne,
+> le dossier `--vcf-dir` doit contenir les VCF correspondants ; l'outil regroupe
+> automatiquement tous les VCF d'un meme echantillon (`JB_01`), quel que soit le
+> gene.
 
 ## Hypotheses / points a valider
 

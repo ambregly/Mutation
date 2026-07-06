@@ -25,10 +25,15 @@ fichier_chu = [
     ["FLT3-D835", "13", "28035000", ".", "A", "T", "P001", "JB_01"],
 ]
 
-# Results_patientJB : liste simple Query / Position.
+# Results_patientJB : Query / Position.
+# La colonne Position encode la coordonnee complete 'chr-pos-ref-alt'
+# (ex. reel : 19-33301387-C-CGGAAGATGCCCCG). On ajoute volontairement une
+# colonne intermediaire, comme dans les fichiers reels, pour verifier le repli
+# de detection de coordonnee (le lecteur scanne la ligne si besoin).
 results_jb = [
     ["Query", "Position"],
-    # correspondance par position seule (ref/alt non fournis)
+    ["FLT3-ITD-76;p.Xaa", "FLT3-ITD-76", "13-28034317-C-" + ALT_ITD],
+    # position seule -> correspondance par position
     ["FLT3-ins36", "13:28034314"],
 ]
 

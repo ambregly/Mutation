@@ -103,22 +103,53 @@ def _read_rows(path: str) -> list[list[str]]:
     raise ValueError("Extension non prise en charge : %s" % ext)
 
 
-def _parse_position(raw: str) -> tuple[str, int | None]:
-    """Decode une valeur 'Position' -> (chrom, pos).
+_BASE_RE = re.compile(r"^[ACGTNacgtn]+$")
+_CHROM_RE = re.compile(r"^[0-9]+$|^[XYMxym]+$")
+_INT_RE = re.compile(r"^[0-9][0-9,]*$")
 
-    Gere 'chr13:28034317', '13:28034317', '13-28034317' ou un simple entier.
+
+def _parse_coord(raw: str) -> tuple[str, int | None, str, str]:
+    """Decode une valeur de coordonnee -> (chrom, pos, ref, alt).
+
+    Formats reconnus :
+      * 'chr-pos-ref-alt'  ex. '19-33301387-C-CGGAAGATGCCCCG'
+      * 'chr:pos:ref:alt', 'chr pos ref alt', melanges de -, :, _ , espace
+      * 'chr:pos' / 'chr-pos'  (ref/alt vides)
+      * 'chr13:...' (prefixe 'chr' ignore)
+      * une position entiere seule
     """
     raw = str(raw).strip()
     if not raw:
-        return "", None
-    m = re.match(r"^\s*(?:chr)?([0-9XYMxym]+)\s*[:\-_ ]\s*([0-9,]+)", raw)
-    if m:
-        pos = int(m.group(2).replace(",", ""))
-        return m.group(1), pos
-    m = re.match(r"^\s*([0-9,]+)\s*$", raw)
-    if m:
-        return "", int(m.group(1).replace(",", ""))
-    return "", None
+        return "", None, "", ""
+
+    parts = [p for p in re.split(r"[\s:_\-]+", raw) if p != ""]
+    if parts and parts[0].lower().startswith("chr"):
+        parts[0] = parts[0][3:]
+
+    # chr-pos-ref-alt : chrom, pos entier, puis deux chaines de bases
+    if (len(parts) >= 4 and _CHROM_RE.match(parts[0]) and _INT_RE.match(parts[1])
+            and _BASE_RE.match(parts[2]) and _BASE_RE.match(parts[3])):
+        return (parts[0], int(parts[1].replace(",", "")),
+                parts[2].upper(), parts[3].upper())
+
+    # chr:pos
+    if len(parts) >= 2 and _CHROM_RE.match(parts[0]) and _INT_RE.match(parts[1]):
+        return parts[0], int(parts[1].replace(",", "")), "", ""
+
+    # position seule
+    if len(parts) == 1 and _INT_RE.match(parts[0]):
+        return "", int(parts[0].replace(",", "")), "", ""
+
+    return "", None, "", ""
+
+
+def _find_coord_in_row(row: list[str]) -> tuple[str, int | None, str, str]:
+    """Repli : cherche dans toute la ligne une cellule ressemblant a une coordonnee."""
+    for cell in row:
+        c, p, r, a = _parse_coord(cell)
+        if p is not None:
+            return c, p, r, a
+    return "", None, "", ""
 
 
 def _cell(row: list[str], idx: int | None) -> str:
@@ -143,40 +174,39 @@ def read_reference(path: str) -> list[KnownMutation]:
             continue  # ligne vide
 
         chrom = _cell(raw_row, cols.get("chrom"))
+        ref = _cell(raw_row, cols.get("ref"))
+        alt = _cell(raw_row, cols.get("alt"))
         pos_raw = _cell(raw_row, cols.get("pos"))
         pos: int | None = None
         position_raw = pos_raw
 
-        if pos_raw:
-            # 'start' peut deja etre une position ou une valeur 'chrom:pos'.
-            c2, p2 = _parse_position(pos_raw)
+        # La colonne 'start'/'position' peut etre une simple position ou une
+        # coordonnee complete 'chr-pos-ref-alt'.
+        c2, p2, r2, a2 = _parse_coord(pos_raw)
+        if p2 is not None:
+            pos = p2
+            chrom = chrom or c2
+            ref = ref or r2
+            alt = alt or a2
+
+        # Repli : si aucune position trouvee dans la colonne attendue (cas ou
+        # l'en-tete ne correspond pas au nombre de colonnes), on scanne la ligne.
+        if pos is None:
+            c2, p2, r2, a2 = _find_coord_in_row(raw_row)
             if p2 is not None:
                 pos = p2
-                if not chrom and c2:
-                    chrom = c2
-            else:
-                try:
-                    pos = int(str(pos_raw).replace(",", ""))
-                except ValueError:
-                    pos = None
-
-        # Fichier de type Results_patientJB : colonne 'Position' unique.
-        if pos is None and "pos" not in cols:
-            # cherche une colonne dont le nom ressemble a 'position'
-            for i, h in enumerate(header):
-                if _slug(h) in {"position", "pos"}:
-                    c2, p2 = _parse_position(_cell(raw_row, i))
-                    chrom = chrom or c2
-                    pos = p2
-                    position_raw = _cell(raw_row, i)
-                    break
+                chrom = chrom or c2
+                ref = ref or r2
+                alt = alt or a2
+                if not position_raw:
+                    position_raw = "%s-%s-%s-%s" % (c2, p2, r2, a2)
 
         km = KnownMutation(
             query=_cell(raw_row, cols.get("query")),
             chrom=chrom,
             pos=pos,
-            ref=_cell(raw_row, cols.get("ref")),
-            alt=_cell(raw_row, cols.get("alt")),
+            ref=ref,
+            alt=alt,
             patient_id=_cell(raw_row, cols.get("patient_id")),
             sample_id=_cell(raw_row, cols.get("sample_id")),
             position_raw=position_raw,

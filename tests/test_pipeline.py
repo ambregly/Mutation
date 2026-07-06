@@ -10,7 +10,7 @@ sys.path.insert(0, ROOT)
 
 from mutmatch import ods                       # noqa: E402
 from mutmatch.vcf import read_vcf              # noqa: E402
-from mutmatch.references import read_reference  # noqa: E402
+from mutmatch.references import read_reference, _parse_coord  # noqa: E402
 from mutmatch.match import FilterConfig, merge_all, match_known  # noqa: E402
 
 EX = os.path.join(ROOT, "examples")
@@ -24,6 +24,25 @@ class TestOdsRoundTrip(unittest.TestCase):
             ods.write_table(path, rows)
             back = ods.read_table(path)
         self.assertEqual(back, rows)
+
+
+class TestParseCoord(unittest.TestCase):
+    def test_chr_pos_ref_alt(self):
+        # format reel de la colonne Position de Results_patientJB
+        self.assertEqual(
+            _parse_coord("19-33301387-C-CGGAAGATGCCCCG"),
+            ("19", 33301387, "C", "CGGAAGATGCCCCG"),
+        )
+
+    def test_chr_pos(self):
+        self.assertEqual(_parse_coord("13:28034314"), ("13", 28034314, "", ""))
+        self.assertEqual(_parse_coord("chr13:28034314"), ("13", 28034314, "", ""))
+
+    def test_position_seule(self):
+        self.assertEqual(_parse_coord("28035000"), ("", 28035000, "", ""))
+
+    def test_non_coordonnee(self):
+        self.assertEqual(_parse_coord("CEBPA:c.1015_1027dup"), ("", None, "", ""))
 
 
 class TestVcf(unittest.TestCase):
@@ -65,8 +84,13 @@ class TestPipeline(unittest.TestCase):
         per = merge_all(self.vcfs, FilterConfig())
         matches = match_known(per, self.known)
         by_query = {m.known.query: m for m in matches}
+        # correspondance exacte via les colonnes ref/alt du Fichier_CHU
         self.assertEqual(by_query["FLT3-ITD-76"].match_level, "exact")
+        # correspondance exacte via la coordonnee chr-pos-ref-alt de Results
+        self.assertEqual(by_query["FLT3-ITD-76;p.Xaa"].match_level, "exact")
+        # correspondance par position seule
         self.assertEqual(by_query["FLT3-ins36"].match_level, "position")
+        # mutation connue non detectee
         self.assertEqual(by_query["FLT3-D835"].match_level, "none")
 
     def test_filter_min_m(self):
