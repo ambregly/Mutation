@@ -1,0 +1,17 @@
+##fileformat=VCFv4.4
+##FILTER=<ID=PASS,Description="All filters passed">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=M,Number=.,Type=Integer,Description="Number of reads containing the variant">
+##INFO=<ID=WT,Number=.,Type=Integer,Description="Number of wild type reads">
+##INFO=<ID=M_WT,Number=.,Type=Float,Description="Allelic ratio (M/WT)">
+##INFO=<ID=VAF,Number=.,Type=Float,Description="Variant Allele Frequency (ratio)">
+##INFO=<ID=DUP,Number=0,Type=Flag,Description="The event is a duplication">
+##reference=file:///scratch/flo/testfilt3/sequence-FLT3-Ex13-14-15-20.fa
+##sample=/data/nas/projects/2025/JB_GAILLARD/analysis/trimmed/fastq/JB_01_1.fastq.gz,/data/nas/projects/2025/JB_GAILLARD/analysis/trimmed/fastq/JB_01_2.fastq.gz
+##parameters=--bloom-size 100000 --highest-fp-rate 0.100000 --ignore-short-indels 0 --kmer-extend 2 --min-nb-duplication 2 --nb-hash 3 --nb-threads 4 --out-sequences  --ref sequence-FLT3-Ex13-14-15-20.fa --sequences /data/nas/projects/2025/JB_GAILLARD/analysis/trimmed/fastq/JB_01_1.fastq.gz,/data/nas/projects/2025/JB_GAILLARD/analysis/trimmed/fastq/JB_01_2.fastq.gz --threshold .01 --vcf  -k 12
+##contig=<ID=13,length=670>
+##contig=<ID=13,length=123>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+13	28034317	.	C	CAAATTAGCAGGGTGTTGTGACAGGTGCCACCCAGCCTGGCCACCGTGGTGAAACTCCGTCTCTACTAAAAATACAA	.	PASS	SVLEN=76;M=17;WT=55123;M_WT=0.000308;VAF=0.000308;DUP
+13	28034314	.	T	TGACAAATTAGCAGGGTTAAAACGACAATGAAGAGGA	.	PASS	SVLEN=36;M=2;WT=58501;M_WT=0.000034;VAF=0.000034;DUP
+13	28034299	.	A	ACCTTTTTGTACTTTTCCCGCTCAATCTCGAGTTCTTTACTT	.	PASS	SVLEN=41;M=3;WT=50326;M_WT=0.000060;VAF=0.000046;
