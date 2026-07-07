@@ -15,7 +15,8 @@ from mutmatch.references import (               # noqa: E402
     mutation_type,
 )
 from mutmatch.match import FilterConfig, merge_all, match_known  # noqa: E402
-from mutmatch.report import synthesis_table     # noqa: E402
+from mutmatch.report import synthesis_table, novel_table  # noqa: E402
+from mutmatch.match import MergedVariant          # noqa: E402
 
 EX = os.path.join(ROOT, "examples")
 
@@ -169,6 +170,39 @@ class TestClinicalWide(unittest.TestCase):
             read_vcf(os.path.join(EX, "vcf", "JB_01_2_fast.gz.results.vcf")),
         ]
         self.known = read_reference(os.path.join(EX, "Fichier_CHU.ods"))
+
+
+class TestTriage(unittest.TestCase):
+    def _mv(self, sample, pos, alt, svlen, dup, pairs, vaf, m):
+        mv = MergedVariant(sample=sample, chrom="13", pos=pos, ref="C", alt=alt,
+                           svlen=svlen, is_dup=dup)
+        for p in pairs:
+            mv.per_pair[p] = {"m": m, "wt": 10000, "vaf": vaf, "filter": "PASS"}
+        return mv
+
+    def test_triage_labels(self):
+        # variant recurrent (present dans 6 echantillons) a basse VAF -> artefact
+        per = {}
+        for i in range(6):
+            s = "JB_%02d" % i
+            per[s] = [self._mv(s, 100, "CGG", 3, True, ["1", "2"], 0.0002, 2)]
+        # un candidat ITD net chez un seul patient
+        per["JB_99"] = [self._mv("JB_99", 28034100, "C" + "GAT" * 6, 18,
+                                 True, ["1", "2"], 0.02, 800)]
+        rows = novel_table(per, candidate_min_vaf=0.01, artifact_min_samples=5)
+        idx = {h: i for i, h in enumerate(rows[0])}
+        by_pos = {r[idx["pos"]]: r for r in rows[1:]}
+        self.assertTrue(by_pos["100"][idx["triage"]].startswith("artefact"))
+        self.assertEqual(by_pos["28034100"][idx["triage"]], "candidat ITD")
+        # tri : le candidat (VAF 0.02) doit etre en premier
+        self.assertEqual(rows[1][idx["pos"]], "28034100")
+
+    def test_low_vaf_is_noise(self):
+        per = {"JB_01": [self._mv("JB_01", 200, "CA", 1, False, ["1"], 0.0001, 1)]}
+        rows = novel_table(per, candidate_min_vaf=0.01, artifact_min_samples=5)
+        idx = {h: i for i, h in enumerate(rows[0])}
+        self.assertIn("bruit", rows[1][idx["triage"]])
+        self.assertEqual(rows[1][idx["cadre_lecture"]], "hors-cadre")
 
 
 if __name__ == "__main__":

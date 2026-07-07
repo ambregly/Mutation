@@ -79,20 +79,70 @@ def known_matches_table(matches: list[KnownMatch]) -> list[list[str]]:
     return rows
 
 
-def novel_table(per_sample: dict[str, list[MergedVariant]]) -> list[list[str]]:
+def _recurrence(per_sample: dict[str, list[MergedVariant]]):
+    """Compte, pour chaque variant, dans combien d'echantillons il apparait.
+
+    Renvoie (par_variant, par_position) : dict cle -> nombre d'echantillons.
+    Un variant recurrent a basse VAF chez beaucoup de patients est un artefact
+    systematique (et non un ITD propre a un patient).
+    """
+    by_variant: dict[tuple, set] = {}
+    by_pos: dict[tuple, set] = {}
+    for sample, variants in per_sample.items():
+        for mv in variants:
+            by_variant.setdefault(mv.key(), set()).add(sample)
+            by_pos.setdefault(mv.pos_key(), set()).add(sample)
+    return ({k: len(v) for k, v in by_variant.items()},
+            {k: len(v) for k, v in by_pos.items()})
+
+
+def _in_frame(svlen) -> bool:
+    return isinstance(svlen, int) and (abs(svlen) % 3 == 0)
+
+
+def _triage(mv: MergedVariant, rec_variant: int,
+            candidate_min_vaf: float, artifact_min_samples: int) -> str:
+    """Pre-classement transparent d'un variant nouveau (aide, pas un diagnostic)."""
+    vaf = mv.max_vaf
+    both = mv.n_pairs >= 2
+    if rec_variant >= artifact_min_samples:
+        return "artefact probable (recurrent sur %d echantillons)" % rec_variant
+    if vaf < candidate_min_vaf:
+        return "bruit probable (VAF faible)"
+    if mv.is_dup and both and _in_frame(mv.svlen):
+        return "candidat ITD"
+    return "a verifier"
+
+
+def novel_table(per_sample: dict[str, list[MergedVariant]],
+                candidate_min_vaf: float = 0.01,
+                artifact_min_samples: int = 5) -> list[list[str]]:
+    rec_variant, rec_pos = _recurrence(per_sample)
     header = [
-        "sample", "chrom", "pos", "ref", "alt", "svlen", "DUP",
+        "sample", "chrom", "pos", "ref", "alt", "svlen", "cadre_lecture", "DUP",
         "trouve_dans_paires", "M_total", "VAF_max",
+        "nb_echantillons_meme_variant", "nb_echantillons_meme_position",
+        "triage",
     ]
-    rows = [header]
-    for sample in sorted(per_sample):
+    novel = []
+    for sample in per_sample:
         for mv in per_sample[sample]:
-            if mv.known:
-                continue
-            rows.append([_fmt(x) for x in [
-                mv.sample, mv.chrom, mv.pos, mv.ref, mv.alt, mv.svlen, mv.is_dup,
-                mv.found_in_pairs, mv.total_m, mv.max_vaf,
-            ]])
+            if not mv.known:
+                novel.append(mv)
+    # tri : VAF decroissante d'abord (les candidats remontent en haut)
+    novel.sort(key=lambda m: (-m.max_vaf, -m.total_m))
+
+    rows = [header]
+    for mv in novel:
+        rv = rec_variant.get(mv.key(), 1)
+        rp = rec_pos.get(mv.pos_key(), 1)
+        cadre = "in-frame" if _in_frame(mv.svlen) else "hors-cadre"
+        triage = _triage(mv, rv, candidate_min_vaf, artifact_min_samples)
+        rows.append([_fmt(x) for x in [
+            mv.sample, mv.chrom, mv.pos, mv.ref, mv.alt, mv.svlen, cadre,
+            mv.is_dup, mv.found_in_pairs, mv.total_m, mv.max_vaf,
+            rv, rp, triage,
+        ]])
     return rows
 
 
@@ -179,13 +229,16 @@ def write_outputs(outdir: str,
                   per_sample: dict[str, list[MergedVariant]],
                   matches: list[KnownMatch],
                   clinical: list[ClinicalMutation] | None = None,
-                  also_ods: bool = False) -> list[str]:
+                  also_ods: bool = False,
+                  candidate_min_vaf: float = 0.01,
+                  artifact_min_samples: int = 5) -> list[str]:
     """Ecrit les tables dans `outdir`. Renvoie la liste des fichiers crees."""
     os.makedirs(outdir, exist_ok=True)
     tables = {
         "variants_par_echantillon": variants_table(per_sample),
         "correspondance_mutations_connues": known_matches_table(matches),
-        "variants_nouveaux": novel_table(per_sample),
+        "variants_nouveaux": novel_table(
+            per_sample, candidate_min_vaf, artifact_min_samples),
     }
     if clinical:
         vcf_chroms = {norm_chrom(mv.chrom)

@@ -41,7 +41,7 @@ Cela produit dans `resultats/` :
 | `synthese_par_patient.tsv` | **Vue clinique par patient** : chaque mutation connue (HGVS + caryotype de `Results_patientJB`), croisee avec sa detection dans le VCF. Colonnes cle : `type_mutation`, `cible_filt3r` (est-ce une ITD FLT3, seule chose que FiLT3r detecte), `detecte`, `commentaire` (interpretation). |
 | `correspondance_mutations_connues.tsv` | Une ligne par mutation connue **a coordonnees** (`Fichier_CHU`), avec `detecte = oui/non` et le niveau de correspondance. |
 | `variants_par_echantillon.tsv` | Tous les variants retenus, un par echantillon, avec les metriques R1/R2 et le statut « connu / nouveau ». |
-| `variants_nouveaux.tsv` | Les variants detectes **absents** des fichiers de reference (candidats a verifier). |
+| `variants_nouveaux.tsv` | Les variants detectes **absents** des references, tries par VAF decroissante et **pre-classes** (colonne `triage`) pour distinguer un vrai ITD du bruit de fond. Voir plus bas. |
 
 > **Portee de FiLT3r** : ces VCF ne contiennent que des variants du chromosome 13
 > (region FLT3) et **uniquement des duplications (ITD)**. Dans
@@ -102,6 +102,35 @@ alt)`. Pour chaque mutation connue :
 le `sample_id` / `patient id` correspond : cela evite les faux positifs
 inter-patients (une position qui coincide par hasard chez un autre patient).
 Utilisez `--no-restrict-to-sample` pour chercher dans tous les echantillons.
+
+## Distinguer un vrai ITD d'un bruit de fond
+
+FiLT3r ressort **beaucoup** de variants a tres basse frequence (bruit
+d'alignement/sequencage). `variants_nouveaux.tsv` est donc trie par VAF
+decroissante et annote pour faciliter le tri :
+
+| Colonne | Aide au tri |
+|---|---|
+| `VAF_max`, `M_total` | un vrai ITD a une VAF et un nombre de reads **nettement au-dessus** du bruit du meme echantillon. |
+| `trouve_dans_paires` | `1,2` (present dans R1 **et** R2) = plus fiable. |
+| `DUP` | un vrai ITD est une **duplication** (`oui`). |
+| `cadre_lecture` | un ITD FLT3 est generalement **in-frame** (taille multiple de 3). |
+| `nb_echantillons_meme_variant` | **critere cle** : un variant present chez **beaucoup** de patients a basse VAF est un **artefact systematique**, pas un ITD propre a un patient. |
+| `triage` | pre-classement synthetique (voir ci-dessous). |
+
+La colonne `triage` combine ces criteres :
+
+- **`artefact probable`** — variant recurrent (>= `--artefact-nb-echantillons`,
+  defaut 5 echantillons) : artefact systematique ;
+- **`bruit probable`** — VAF < `--candidat-vaf-min` (defaut 0.01 = 1 %) ;
+- **`candidat ITD`** — duplication, presente dans R1+R2, in-frame et VAF >= seuil ;
+- **`a verifier`** — VAF suffisante mais un critere manque (une seule paire,
+  non-duplication, hors-cadre).
+
+> C'est une **aide au tri, pas un diagnostic** : ajustez les seuils avec
+> `--candidat-vaf-min` et `--artefact-nb-echantillons`. Un vrai ITD deja connu
+> apparait dans `synthese_par_patient.tsv` (il n'est pas "nouveau") ; cette table
+> sert surtout a reperer une **ITD non encore connue**.
 
 ### Detection des colonnes de reference
 

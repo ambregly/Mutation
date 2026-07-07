@@ -67,6 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--no-require-pass", action="store_true",
                    help="Ne pas exiger FILTER=PASS.")
 
+    t = p.add_argument_group("triage des variants nouveaux")
+    t.add_argument("--candidat-vaf-min", type=float, default=0.01,
+                   help="VAF minimale pour qu'un variant nouveau soit un "
+                        "'candidat ITD' plutot que du bruit.")
+    t.add_argument("--artefact-nb-echantillons", type=int, default=5,
+                   help="Un variant present dans au moins ce nombre "
+                        "d'echantillons est classe 'artefact probable'.")
+
     p.add_argument("--no-restrict-to-sample", action="store_true",
                    help="Chercher chaque mutation connue dans TOUS les "
                         "echantillons (par defaut : uniquement dans "
@@ -149,7 +157,9 @@ def main(argv=None) -> int:
               % (", ".join(vcf_chroms) if vcf_chroms else "aucun"))
 
     written = write_outputs(args.out, per_sample, matches,
-                            clinical=clinical, also_ods=args.ods_output)
+                            clinical=clinical, also_ods=args.ods_output,
+                            candidate_min_vaf=args.candidat_vaf_min,
+                            artifact_min_samples=args.artefact_nb_echantillons)
     print("\nRapports ecrits dans %s/ :" % args.out)
     for w in written:
         print("  %s" % w)
