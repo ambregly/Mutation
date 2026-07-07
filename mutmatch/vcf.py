@@ -13,9 +13,10 @@ import os
 import re
 from dataclasses import dataclass, field
 
-# Nom de fichier attendu : JB_01_1_fast.gz.results.vcf
+# Nom de fichier attendu : JB_01_1_fast.gz.results.vcf ou JB_01_1.fast.gz...
 #   groupe 1 = echantillon (JB_01), groupe 2 = paire (1 ou 2)
-_FNAME_RE = re.compile(r"(?P<sample>.+?)_(?P<pair>[12])_fast", re.IGNORECASE)
+#   le separateur avant 'fast' peut etre '_' ou '.' (les deux formes existent).
+_FNAME_RE = re.compile(r"(?P<sample>.+?)_(?P<pair>[12])[._]fast", re.IGNORECASE)
 
 # Ligne ##sample=.../JB_01_1.fastq.gz,.../JB_01_2.fastq.gz
 _SAMPLE_FASTQ_RE = re.compile(r"(?P<sample>[A-Za-z0-9]+_\d+)_[12]\.fastq", re.IGNORECASE)

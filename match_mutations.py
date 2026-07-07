@@ -43,8 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vcf-dir", help="Dossier contenant les fichiers VCF de resultats.")
     p.add_argument("--vcf", action="append", default=[],
                    help="Fichier VCF explicite (repetable). Complete --vcf-dir.")
-    p.add_argument("--pattern", default="*_fast*.results.vcf*",
-                   help="Motif de recherche des VCF dans --vcf-dir.")
+    p.add_argument("--pattern", default="*results.vcf*",
+                   help="Motif de recherche des VCF dans --vcf-dir "
+                        "(gere les formes _fast et .fast, compressees ou non).")
     p.add_argument("--reference", action="append", default=[],
                    help="Fichier de reference .ods/.csv/.tsv (repetable).")
     p.add_argument("--out", default="resultats",
