@@ -1,9 +1,16 @@
 # Mutation — correspondance des variants VCF FLT3 avec les mutations connues
 
+Les fichiers VCF proviennent de **FiLT3r** ([Baudry *et al*,
+2022](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-022-04983-6)),
+un detecteur de **duplications internes (ITD) de FLT3**. Il ne detecte donc
+**que les FLT3-ITD** : ni les autres genes, ni les mutations ponctuelles (SNV)
+de FLT3. L'outil ci-dessous en tient compte (colonnes `cible_filt3r` /
+`commentaire`).
+
 Outil en **Python 3 pur (aucune dependance externe)** pour :
 
-1. lire les fichiers VCF de resultats `JB_*_*_fast.gz.results.vcf` (detection de
-   duplications / ITD sur FLT3) ;
+1. lire les fichiers VCF de resultats `JB_*_*_fast.gz.results.vcf` (FiLT3r,
+   duplications / ITD de FLT3) ;
 2. appliquer des **filtres** (VAF, nombre de lectures, PASS, DUP...) ;
 3. **fusionner les deux paires** de lecture (R1 = `_1`, R2 = `_2`) par
    echantillon ;
@@ -31,17 +38,24 @@ Cela produit dans `resultats/` :
 
 | Fichier | Contenu |
 |---|---|
-| `synthese_par_patient.tsv` | **Vue clinique par patient** : chaque mutation connue (HGVS + caryotype de `Results_patientJB`), croisee avec sa detection dans le VCF. Colonne `couvert_par_ce_vcf` = le gene est-il dans la portee du VCF. |
+| `synthese_par_patient.tsv` | **Vue clinique par patient** : chaque mutation connue (HGVS + caryotype de `Results_patientJB`), croisee avec sa detection dans le VCF. Colonnes cle : `type_mutation`, `cible_filt3r` (est-ce une ITD FLT3, seule chose que FiLT3r detecte), `detecte`, `commentaire` (interpretation). |
 | `correspondance_mutations_connues.tsv` | Une ligne par mutation connue **a coordonnees** (`Fichier_CHU`), avec `detecte = oui/non` et le niveau de correspondance. |
 | `variants_par_echantillon.tsv` | Tous les variants retenus, un par echantillon, avec les metriques R1/R2 et le statut « connu / nouveau ». |
 | `variants_nouveaux.tsv` | Les variants detectes **absents** des fichiers de reference (candidats a verifier). |
 
-> **Portee des VCF** : ces fichiers proviennent d'un detecteur d'ITD/duplications
-> **FLT3** (reference `sequence-FLT3-Ex13-14-15-20.fa`) et ne contiennent que des
-> variants du chromosome 13 (region FLT3). Les mutations connues d'autres genes
-> (CEBPA, JAK2, IDH1...) ne peuvent donc pas y etre retrouvees : la colonne
-> `couvert_par_ce_vcf` vaut alors `non`. Pour les valider, il faut les VCF du
-> panel correspondant.
+> **Portee de FiLT3r** : ces VCF ne contiennent que des variants du chromosome 13
+> (region FLT3) et **uniquement des duplications (ITD)**. Dans
+> `synthese_par_patient.tsv`, seules les lignes `cible_filt3r = oui` (= une ITD
+> FLT3) peuvent legitimement etre `detecte = oui`. Tout le reste est marque hors
+> perimetre dans `commentaire` :
+>
+> - **autre gene** (CEBPA, JAK2, IDH1...) -> hors perimetre FiLT3r ;
+> - **SNV de FLT3** (ex. D835, `c.2503G>T`) -> FiLT3r ne detecte pas les
+>   mutations ponctuelles.
+>
+> Autrement dit, `detecte = non` sur une ligne `cible_filt3r = oui` est un vrai
+> signal (ITD attendue mais non retrouvee, a investiguer) ; ailleurs, c'est
+> simplement hors perimetre.
 
 Ajouter `--ods-output` pour ecrire aussi ces tables au format `.ods`.
 

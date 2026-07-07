@@ -12,6 +12,7 @@ from mutmatch import ods                       # noqa: E402
 from mutmatch.vcf import read_vcf              # noqa: E402
 from mutmatch.references import (               # noqa: E402
     read_reference, read_any, read_clinical_wide, _parse_coord, norm_hgvs,
+    mutation_type,
 )
 from mutmatch.match import FilterConfig, merge_all, match_known  # noqa: E402
 from mutmatch.report import synthesis_table     # noqa: E402
@@ -126,6 +127,13 @@ class TestClinicalWide(unittest.TestCase):
             norm_hgvs("FLT3:c.1747_1794dup"),
         )
 
+    def test_mutation_type(self):
+        self.assertEqual(mutation_type("c.1747_1794dup"), "duplication")
+        self.assertEqual(mutation_type("c.2503G>T"), "SNV")
+        self.assertEqual(mutation_type("c.863_864insCCTG"), "insertion")
+        self.assertEqual(mutation_type("c.282_297del"), "deletion")
+        self.assertEqual(mutation_type("c.284_294delinsGT"), "delins")
+
     def test_synthesis(self):
         per = merge_all(self.vcfs, FilterConfig())
         matches = match_known(per, self.known)
@@ -136,16 +144,24 @@ class TestClinicalWide(unittest.TestCase):
         idx = {h: i for i, h in enumerate(header)}
         by_gene_c = {(r[idx["gene"]], r[idx["hgvs_c"]]): r for r in rows[1:]}
 
-        # FLT3 ITD : couvert par le VCF et detecte
+        # duplication FLT3 : cible de FiLT3r et detectee
         itd = by_gene_c[("FLT3", "c.1747_1794dup")]
-        self.assertEqual(itd[idx["couvert_par_ce_vcf"]], "oui")
+        self.assertEqual(itd[idx["type_mutation"]], "duplication")
+        self.assertEqual(itd[idx["cible_filt3r"]], "oui")
         self.assertEqual(itd[idx["detecte"]], "oui")
         self.assertEqual(itd[idx["caryotype"]], "46,XX[40]")
+        self.assertIn("confirmee", itd[idx["commentaire"]])
 
-        # CEBPA : chr19, non couvert par ce VCF FLT3
+        # SNV FLT3 : hors perimetre FiLT3r (pas une duplication)
+        snv = by_gene_c[("FLT3", "c.2503G>T")]
+        self.assertEqual(snv[idx["type_mutation"]], "SNV")
+        self.assertEqual(snv[idx["cible_filt3r"]], "non")
+
+        # CEBPA : autre gene, hors perimetre
         cebpa = by_gene_c[("CEBPA", "c.1015_1027dup")]
-        self.assertEqual(cebpa[idx["couvert_par_ce_vcf"]], "non")
+        self.assertEqual(cebpa[idx["cible_filt3r"]], "non")
         self.assertEqual(cebpa[idx["chrom"]], "19")
+        self.assertIn("hors perimetre", cebpa[idx["commentaire"]])
 
     def setUp(self):
         self.vcfs = [

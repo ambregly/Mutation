@@ -7,7 +7,7 @@ import os
 
 from . import ods
 from .match import MergedVariant, KnownMatch
-from .references import ClinicalMutation, norm_hgvs
+from .references import ClinicalMutation, norm_hgvs, mutation_type
 from .vcf import norm_chrom
 
 
@@ -121,31 +121,50 @@ def synthesis_table(clinical: list[ClinicalMutation],
 
     header = [
         "sample", "n_echantillon", "caryotype", "gene",
-        "hgvs_c", "hgvs_p", "chrom", "pos", "ref", "alt",
-        "couvert_par_ce_vcf", "detecte", "niveau_correspondance",
-        "VAF_max", "M_total",
+        "hgvs_c", "hgvs_p", "type_mutation", "chrom", "pos", "ref", "alt",
+        "cible_filt3r", "detecte", "niveau_correspondance",
+        "VAF_max", "M_total", "commentaire",
     ]
     rows = [header]
     for c in sorted(clinical, key=lambda m: (_norm_sample(m.sample_id), m.gene)):
         info = lut.get((_norm_sample(c.sample_id), norm_hgvs(c.hgvs)))
+        is_flt3 = c.gene.upper() == "FLT3"
+        mtype = mutation_type(c.hgvs_c)
+        # FiLT3r ne detecte que les duplications internes (ITD) de FLT3.
+        cible = "oui" if (is_flt3 and mtype == "duplication") else "non"
+
         if info is not None:
-            covered = "oui" if norm_chrom(info["chrom"]) in vcf_chroms else "non"
             detecte = "oui" if info["level"] != "none" else "non"
             chrom, pos, ref, alt = info["chrom"], info["pos"], info["ref"], info["alt"]
             level, vaf, mtot = info["level"], info["vaf"], info["m"]
         else:
-            # mutation clinique sans coordonnee correspondante dans le Fichier_CHU
-            covered = "inconnu (pas de coordonnee)"
             detecte = "?"
             chrom = pos = ref = alt = ""
             level = ""
             vaf = mtot = ""
+
+        comment = _comment(cible, detecte, is_flt3, mtype, info is None)
         rows.append([_fmt(x) for x in [
             c.sample_id, c.n_echantillon, c.caryotype, c.gene,
-            c.hgvs_c, c.hgvs_p, chrom, pos, ref, alt,
-            covered, detecte, level, vaf, mtot,
+            c.hgvs_c, c.hgvs_p, mtype, chrom, pos, ref, alt,
+            cible, detecte, level, vaf, mtot, comment,
         ]])
     return rows
+
+
+def _comment(cible: str, detecte: str, is_flt3: bool, mtype: str,
+             no_coord: bool) -> str:
+    """Phrase d'interpretation pour une ligne de synthese."""
+    if no_coord:
+        return "Coordonnees absentes du Fichier_CHU (impossible a rechercher)"
+    if cible == "oui":
+        if detecte == "oui":
+            return "ITD FLT3 confirmee"
+        return "ITD FLT3 attendue mais NON retrouvee (a investiguer)"
+    if is_flt3:
+        return ("FLT3 mais hors perimetre FiLT3r "
+                "(detecte les duplications, pas les %s)" % mtype)
+    return "Gene hors perimetre FiLT3r (analyse FLT3-ITD uniquement)"
 
 
 # --- Ecriture -------------------------------------------------------------

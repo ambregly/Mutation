@@ -320,6 +320,26 @@ def read_clinical_wide(path: str) -> list[ClinicalMutation]:
     return out
 
 
+def mutation_type(hgvs_c: str) -> str:
+    """Classe une mutation d'apres sa nomenclature HGVS 'c.'.
+
+    Renvoie : 'duplication', 'insertion', 'delins', 'deletion', 'SNV' ou 'autre'.
+    Sert a savoir ce que FiLT3r peut detecter (uniquement les duplications).
+    """
+    s = str(hgvs_c).lower()
+    if "delins" in s:
+        return "delins"
+    if "dup" in s:
+        return "duplication"
+    if "ins" in s:
+        return "insertion"
+    if "del" in s:
+        return "deletion"
+    if ">" in s:
+        return "SNV"
+    return "autre"
+
+
 def norm_hgvs(text: str) -> str:
     """Normalise une chaine HGVS pour comparer Fichier_CHU et Results.
 
