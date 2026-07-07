@@ -16,7 +16,7 @@ from mutmatch.references import (               # noqa: E402
 )
 from mutmatch.match import FilterConfig, merge_all, match_known  # noqa: E402
 from mutmatch.report import synthesis_table, novel_table  # noqa: E402
-from mutmatch.match import MergedVariant          # noqa: E402
+from mutmatch.match import MergedVariant, drop_recurrent  # noqa: E402
 
 EX = os.path.join(ROOT, "examples")
 
@@ -196,6 +196,25 @@ class TestTriage(unittest.TestCase):
         self.assertEqual(by_pos["28034100"][idx["triage"]], "candidat ITD")
         # tri : le candidat (VAF 0.02) doit etre en premier
         self.assertEqual(rows[1][idx["pos"]], "28034100")
+
+    def test_drop_recurrent(self):
+        # meme variant (pos 100) chez 6 echantillons -> artefact ; pos 500 unique
+        per = {}
+        for i in range(6):
+            s = "JB_%02d" % i
+            per[s] = [self._mv(s, 100, "CGG", 3, True, ["1", "2"], 0.0002, 2)]
+        per["JB_00"].append(
+            self._mv("JB_00", 500, "CAAA", 3, True, ["1", "2"], 0.02, 800))
+        out, removed = drop_recurrent(per, min_samples=5)
+        self.assertEqual(removed, 6)  # le variant recurrent chez 6 patients
+        # le variant unique (pos 500) est conserve
+        positions = {mv.pos for vs in out.values() for mv in vs}
+        self.assertEqual(positions, {500})
+
+    def test_drop_recurrent_disabled(self):
+        per = {"JB_01": [self._mv("JB_01", 100, "CGG", 3, True, ["1"], 0.5, 9)]}
+        out, removed = drop_recurrent(per, min_samples=0)
+        self.assertEqual(removed, 0)
 
     def test_low_vaf_is_noise(self):
         per = {"JB_01": [self._mv("JB_01", 200, "CA", 1, False, ["1"], 0.0001, 1)]}

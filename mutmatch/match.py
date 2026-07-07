@@ -151,6 +151,29 @@ def merge_all(vcf_files: list[VcfFile], cfg: FilterConfig) -> dict[str, list[Mer
     return out
 
 
+def drop_recurrent(per_sample: dict[str, list[MergedVariant]],
+                   min_samples: int) -> tuple[dict, int]:
+    """Retire les variants presents dans >= min_samples echantillons.
+
+    Un ITD FLT3 est propre a un patient : un variant identique retrouve chez de
+    nombreux patients est un artefact systematique (bruit de fond du protocole).
+    Renvoie (per_sample_filtre, nombre_de_variants_retires).
+    """
+    if min_samples <= 0:
+        return per_sample, 0
+    counts: dict[tuple, set] = {}
+    for sample, variants in per_sample.items():
+        for mv in variants:
+            counts.setdefault(mv.key(), set()).add(sample)
+    removed = 0
+    out: dict[str, list[MergedVariant]] = {}
+    for sample, variants in per_sample.items():
+        kept = [mv for mv in variants if len(counts[mv.key()]) < min_samples]
+        removed += len(variants) - len(kept)
+        out[sample] = kept
+    return out, removed
+
+
 @dataclass
 class KnownMatch:
     """Resultat de correspondance pour une mutation connue."""

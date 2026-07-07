@@ -81,11 +81,32 @@ python3 match_mutations.py \
 | `--min-wt N` | nombre minimal de lectures sauvages (`WT`) | `0` |
 | `--only-dup` | ne garder que les evenements `DUP` (duplications / ITD) | off |
 | `--require-both-pairs` | variant present dans **R1 ET R2** (plus fiable) | off |
+| `--drop-recurrent N` | supprimer les variants presents dans **>= N echantillons** (artefacts systematiques) | `0` (off) |
 | `--no-require-pass` | ne pas exiger `FILTER=PASS` | (PASS exige) |
 
 Par defaut aucun seuil de VAF/lectures n'est impose (seul `FILTER=PASS` l'est) :
 les ITD FLT3 pertinentes peuvent avoir une VAF tres faible. Ajustez les seuils
 selon votre pratique.
+
+### Reduire le bruit de fond
+
+Un seul seuil de VAF ne suffit pas (un artefact recurrent peut passer au-dessus,
+un vrai ITD minoritaire en dessous). **Combinez** plutot les filtres. Effet
+mesure sur un jeu reel de ~7000 variants non connus :
+
+| Filtres | Variants restants |
+|---|---|
+| aucun | 7062 |
+| `--min-m 10` | 2956 |
+| `--min-m 10 --require-both-pairs` | 1590 |
+| `--min-m 10 --require-both-pairs --only-dup` | 117 |
+| `--min-m 10 --require-both-pairs --only-dup --drop-recurrent 5` | 0 |
+
+`--drop-recurrent` est la cle contre les artefacts **systematiques** (memes
+positions chez de nombreux patients) que les seuils de VAF/M ne retirent pas.
+Un ITD FLT3 etant propre a un patient, un seuil eleve (>= 5) ne supprime que du
+bruit. Pour de la recherche d'ITD **minoritaire** (MRD), gardez un `--min-m`
+plus bas mais conservez `--require-both-pairs` et `--drop-recurrent`.
 
 ## Comment se fait la correspondance
 

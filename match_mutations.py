@@ -26,7 +26,7 @@ import sys
 
 from mutmatch.vcf import read_vcf
 from mutmatch.references import read_any
-from mutmatch.match import FilterConfig, merge_all, match_known
+from mutmatch.match import FilterConfig, merge_all, match_known, drop_recurrent
 from mutmatch.report import write_outputs
 
 
@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Ne garder que les variants presents dans R1 ET R2.")
     g.add_argument("--no-require-pass", action="store_true",
                    help="Ne pas exiger FILTER=PASS.")
+    g.add_argument("--drop-recurrent", type=int, default=0, metavar="N",
+                   help="Supprimer les variants presents dans au moins N "
+                        "echantillons (artefacts systematiques). 0 = desactive. "
+                        "Un ITD FLT3 etant propre a un patient, un seuil eleve "
+                        "(ex. 5) ne retire que du bruit recurrent.")
 
     t = p.add_argument_group("triage des variants nouveaux")
     t.add_argument("--candidat-vaf-min", type=float, default=0.01,
@@ -122,6 +127,11 @@ def main(argv=None) -> int:
     print("\nFiltres appliques : %s" % cfg.describe())
     print("%d echantillon(s), %d variant(s) apres filtrage/fusion."
           % (len(per_sample), n_variants))
+
+    if args.drop_recurrent > 0:
+        per_sample, removed = drop_recurrent(per_sample, args.drop_recurrent)
+        print("Filtre de recurrence (>= %d echantillons) : %d variant(s) "
+              "artefactuel(s) retire(s)." % (args.drop_recurrent, removed))
 
     known = []       # mutations avec coordonnees (Fichier_CHU) -> matching VCF
     clinical = []    # mutations cliniques HGVS par patient (Results_patientJB)
