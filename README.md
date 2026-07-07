@@ -31,9 +31,17 @@ Cela produit dans `resultats/` :
 
 | Fichier | Contenu |
 |---|---|
+| `synthese_par_patient.tsv` | **Vue clinique par patient** : chaque mutation connue (HGVS + caryotype de `Results_patientJB`), croisee avec sa detection dans le VCF. Colonne `couvert_par_ce_vcf` = le gene est-il dans la portee du VCF. |
+| `correspondance_mutations_connues.tsv` | Une ligne par mutation connue **a coordonnees** (`Fichier_CHU`), avec `detecte = oui/non` et le niveau de correspondance. |
 | `variants_par_echantillon.tsv` | Tous les variants retenus, un par echantillon, avec les metriques R1/R2 et le statut « connu / nouveau ». |
-| `correspondance_mutations_connues.tsv` | Une ligne par mutation connue du referentiel, avec `detecte = oui/non` et le niveau de correspondance. |
 | `variants_nouveaux.tsv` | Les variants detectes **absents** des fichiers de reference (candidats a verifier). |
+
+> **Portee des VCF** : ces fichiers proviennent d'un detecteur d'ITD/duplications
+> **FLT3** (reference `sequence-FLT3-Ex13-14-15-20.fa`) et ne contiennent que des
+> variants du chromosome 13 (region FLT3). Les mutations connues d'autres genes
+> (CEBPA, JAK2, IDH1...) ne peuvent donc pas y etre retrouvees : la colonne
+> `couvert_par_ce_vcf` vaut alors `non`. Pour les valider, il faut les VCF du
+> panel correspondant.
 
 Ajouter `--ods-output` pour ecrire aussi ces tables au format `.ods`.
 
@@ -72,14 +80,14 @@ alt)`. Pour chaque mutation connue :
 
 - **`exact`** — le referentiel fournit `chr`, `start`, `ref` et `alt` et les
   quatre coincident avec un variant detecte ;
-- **`position`** — seule la position `(chr, pos)` coincide (cas de
-  `Results_patientJB.ods` qui ne donne que `Position`, ou ref/alt manquants) ;
+- **`position`** — seule la position `(chr, pos)` coincide (ref/alt differents
+  ou absents) ;
 - **`none`** — mutation connue non retrouvee dans les VCF.
 
-Option `--restrict-to-sample` : ne chercher une mutation connue que dans
-l'echantillon dont le `sample_id` / `patient id` correspond (sinon la recherche
-se fait sur tous les echantillons, ce qui reste utile si les identifiants ne
-coincident pas exactement).
+**Par defaut**, une mutation connue n'est cherchee que dans l'echantillon dont
+le `sample_id` / `patient id` correspond : cela evite les faux positifs
+inter-patients (une position qui coincide par hasard chez un autre patient).
+Utilisez `--no-restrict-to-sample` pour chercher dans tous les echantillons.
 
 ### Detection des colonnes de reference
 
@@ -87,17 +95,20 @@ La lecture des `.ods` / `.csv` / `.tsv` reconnait les colonnes de maniere
 souple (insensible a la casse, tolere `#`, accents, espaces et quelques
 synonymes) :
 
-- `Fichier_CHU` : `Query`, `#chr`, `start`, `ID`, `ref`, `alt`, `patient id`,
-  `sample_id` ;
-- `Results_patientJB` : `Query`, `Position`. La colonne `Position` peut encoder
-  la **coordonnee complete** `chr-pos-ref-alt`
-  (ex. `19-33301387-C-CGGAAGATGCCCCG`), ce qui permet une correspondance
-  **exacte**. Les formats `13:28034317`, `chr13:28034317` ou une position seule
-  sont aussi acceptes (correspondance par position).
+Le **type** de chaque fichier `--reference` est reconnu automatiquement :
 
-Si l'en-tete d'un fichier de reference ne compte pas le meme nombre de colonnes
-que les lignes de donnees, le lecteur **scanne la ligne** pour retrouver la
-cellule qui ressemble a une coordonnee (`chr-pos-ref-alt` ou `chr:pos`).
+- **Format coordonnees** (ex. `Fichier_CHU`) : une mutation par ligne, colonnes
+  `Query`, `#chr`, `start`, `ID`, `ref`, `alt`, `patient id`, `sample_id`. Une
+  colonne `start`/`Position` peut aussi encoder la coordonnee complete
+  `chr-pos-ref-alt` (ex. `19-33301387-C-CGGAAGATGCCCCG`). C'est ce format qui
+  porte les coordonnees et pilote le matching avec les VCF.
+
+- **Format clinique large** (ex. `Results_patientJB`) : **une ligne par
+  patient**, colonnes `N° Echantillon`, `Sample`, `Caryotype`, puis une ou
+  plusieurs colonnes de mutations en nomenclature HGVS
+  (`GENE : c.xxx; p.yyy`). Ce format n'a pas de coordonnees ; il est relie au
+  fichier coordonnees par `(echantillon, GENE:c.xxx)` pour produire la
+  `synthese_par_patient.tsv`.
 
 > **Multi-genes** : le pipeline produit un VCF par gene/amplicon (FLT3 sur le
 > chr13, CEBPA sur le chr19, etc.). Pour retrouver une mutation d'un gene donne,

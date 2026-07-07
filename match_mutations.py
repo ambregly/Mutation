@@ -25,7 +25,7 @@ import os
 import sys
 
 from mutmatch.vcf import read_vcf
-from mutmatch.references import read_reference
+from mutmatch.references import read_any
 from mutmatch.match import FilterConfig, merge_all, match_known
 from mutmatch.report import write_outputs
 
@@ -67,9 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--no-require-pass", action="store_true",
                    help="Ne pas exiger FILTER=PASS.")
 
-    p.add_argument("--restrict-to-sample", action="store_true",
-                   help="Ne chercher une mutation connue que dans l'echantillon "
-                        "dont le sample_id/patient correspond.")
+    p.add_argument("--no-restrict-to-sample", action="store_true",
+                   help="Chercher chaque mutation connue dans TOUS les "
+                        "echantillons (par defaut : uniquement dans "
+                        "l'echantillon dont le sample_id/patient correspond, "
+                        "ce qui evite les faux positifs inter-patients).")
     return p
 
 
@@ -113,28 +115,41 @@ def main(argv=None) -> int:
     print("%d echantillon(s), %d variant(s) apres filtrage/fusion."
           % (len(per_sample), n_variants))
 
-    known = []
+    known = []       # mutations avec coordonnees (Fichier_CHU) -> matching VCF
+    clinical = []    # mutations cliniques HGVS par patient (Results_patientJB)
     for ref in args.reference:
         try:
-            km = read_reference(ref)
+            kind, items = read_any(ref)
         except Exception as exc:  # noqa: BLE001
             print("  ! echec de lecture reference %s : %s" % (ref, exc),
                   file=sys.stderr)
             continue
-        known += km
-        print("Reference %s : %d mutation(s) connue(s)."
-              % (os.path.basename(ref), len(km)))
+        if kind == "clinical":
+            clinical += items
+            print("Reference %s (clinique) : %d mutation(s) sur %d patient(s)."
+                  % (os.path.basename(ref), len(items),
+                     len({m.sample_id for m in items})))
+        else:
+            known += items
+            print("Reference %s (coordonnees) : %d mutation(s) connue(s)."
+                  % (os.path.basename(ref), len(items)))
 
     matches = match_known(per_sample, known,
-                          restrict_to_sample=args.restrict_to_sample)
+                          restrict_to_sample=not args.no_restrict_to_sample)
 
     if known:
         n_detected = sum(1 for m in matches if m.match_level != "none")
-        print("\nMutations connues detectees : %d / %d" % (n_detected, len(matches)))
+        print("\nMutations connues (coordonnees) detectees : %d / %d"
+              % (n_detected, len(matches)))
         n_novel = sum(1 for v in _flat(per_sample) if not v.known)
         print("Variants detectes non presents dans les references : %d" % n_novel)
+    if clinical:
+        vcf_chroms = sorted({v.chrom for v in _flat(per_sample)})
+        print("Chromosome(s) couvert(s) par les VCF : %s"
+              % (", ".join(vcf_chroms) if vcf_chroms else "aucun"))
 
-    written = write_outputs(args.out, per_sample, matches, also_ods=args.ods_output)
+    written = write_outputs(args.out, per_sample, matches,
+                            clinical=clinical, also_ods=args.ods_output)
     print("\nRapports ecrits dans %s/ :" % args.out)
     for w in written:
         print("  %s" % w)

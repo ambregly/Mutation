@@ -1,14 +1,18 @@
 """Lecture des fichiers de reference decrivant les mutations connues.
 
-Deux fichiers sont attendus (formats .ods, .csv ou .tsv acceptes) :
+Deux formats sont geres (fichiers .ods, .csv ou .tsv) :
 
-  * Fichier_CHU        : colonnes Query, #chr, start, ID, ref, alt,
-                         patient id, sample_id
-  * Results_patientJB  : colonnes Query, Position
+  * Fichier "coordonnees" (ex. Fichier_CHU) : une mutation par ligne, avec des
+    colonnes Query, #chr, start, ID, ref, alt, patient id, sample_id. Ce format
+    porte les coordonnees genomiques et sert au matching avec les VCF.
+
+  * Fichier "clinique large" (ex. Results_patientJB) : une ligne par patient,
+    avec N Echantillon, Sample, Caryotype, puis une ou plusieurs colonnes de
+    mutations en nomenclature HGVS ('GENE : c.xxx; p.xxx'), sans coordonnees.
 
 La detection des colonnes est souple (insensible a la casse, tolere les
-espaces, '#', accents et quelques synonymes), de sorte que de petites
-variations d'en-tete ne cassent pas la lecture.
+espaces, '#', accents et quelques synonymes). Le type de fichier est reconnu
+automatiquement (voir read_any / is_clinical_wide).
 """
 
 from __future__ import annotations
@@ -217,3 +221,122 @@ def read_reference(path: str) -> list[KnownMutation]:
         out.append(km)
 
     return out
+
+
+# --- Format clinique large (Results_patientJB) ---------------------------
+
+@dataclass
+class ClinicalMutation:
+    """Une mutation connue en nomenclature HGVS, rattachee a un patient."""
+
+    sample_id: str = ""
+    n_echantillon: str = ""
+    caryotype: str = ""
+    gene: str = ""
+    hgvs: str = ""      # 'GENE:c.xxx'
+    hgvs_c: str = ""    # 'c.xxx'
+    hgvs_p: str = ""    # 'p.xxx' (ou vide)
+    raw: str = ""
+    source: str = ""
+
+
+# 'GENE : c.xxxx; p.yyyy'  (le ' ; p...' est optionnel)
+_MUT_RE = re.compile(r"^\s*([A-Za-z0-9]+)\s*:\s*(c\.[^;]+?)\s*(?:;\s*(.*))?$")
+
+
+def _parse_mutation_cell(cell: str):
+    """Decode 'GENE : c.xxx; p.yyy' -> (gene, hgvs_c, hgvs_p) ou None."""
+    cell = str(cell).strip()
+    if not cell:
+        return None
+    m = _MUT_RE.match(cell)
+    if not m:
+        return None
+    gene = m.group(1).strip()
+    hgvs_c = m.group(2).strip()
+    hgvs_p = (m.group(3) or "").strip()
+    return gene, hgvs_c, hgvs_p
+
+
+def is_clinical_wide(rows: list[list[str]]) -> bool:
+    """Reconnait le format clinique large (une ligne par patient)."""
+    if not rows:
+        return False
+    slugs = {_slug(h) for h in rows[0]}
+    if any("mutations" in s for s in slugs):
+        return True
+    return "sample" in slugs and any("caryotype" in s for s in slugs)
+
+
+def _first_col(slugs: list[str], predicate) -> int | None:
+    for i, s in enumerate(slugs):
+        if predicate(s):
+            return i
+    return None
+
+
+def read_clinical_wide(path: str) -> list[ClinicalMutation]:
+    """Lit un fichier clinique large -> liste de ClinicalMutation (a plat)."""
+    rows = _read_rows(path)
+    if not rows:
+        return []
+    header = rows[0]
+    slugs = [_slug(h) for h in header]
+    source = os.path.basename(path)
+
+    i_sample = _first_col(slugs, lambda s: s == "sample")
+    i_caryo = _first_col(slugs, lambda s: "caryotype" in s)
+    i_num = _first_col(slugs, lambda s: "echantillon" in s or s.startswith("n "))
+    i_mut = _first_col(slugs, lambda s: "mutations" in s)
+    if i_mut is None:
+        i_mut = (i_caryo + 1) if i_caryo is not None else 3
+
+    out: list[ClinicalMutation] = []
+    for row in rows[1:]:
+        if not any(str(c).strip() for c in row):
+            continue
+        sample = _cell(row, i_sample)
+        caryo = _cell(row, i_caryo)
+        nech = _cell(row, i_num)
+        # Les mutations occupent la colonne 'Mutations NGS' et toutes les
+        # colonnes suivantes (format irregulier : autant de colonnes que de
+        # mutations).
+        for j in range(i_mut, len(row)):
+            parsed = _parse_mutation_cell(_cell(row, j))
+            if not parsed:
+                continue
+            gene, hgvs_c, hgvs_p = parsed
+            out.append(ClinicalMutation(
+                sample_id=sample,
+                n_echantillon=nech,
+                caryotype=caryo,
+                gene=gene,
+                hgvs="%s:%s" % (gene, hgvs_c),
+                hgvs_c=hgvs_c,
+                hgvs_p=hgvs_p,
+                raw=_cell(row, j),
+                source=source,
+            ))
+    return out
+
+
+def norm_hgvs(text: str) -> str:
+    """Normalise une chaine HGVS pour comparer Fichier_CHU et Results.
+
+    Retire les espaces, met en majuscules et ne garde que la partie
+    'GENE:c.xxx' (avant un eventuel '; p...').
+    """
+    s = str(text).split(";")[0]
+    s = re.sub(r"\s+", "", s).upper()
+    return s
+
+
+def read_any(path: str):
+    """Lit un fichier de reference et devine son type.
+
+    Renvoie ('clinical', [ClinicalMutation]) ou ('coord', [KnownMutation]).
+    """
+    rows = _read_rows(path)
+    if is_clinical_wide(rows):
+        return "clinical", read_clinical_wide(path)
+    return "coord", read_reference(path)

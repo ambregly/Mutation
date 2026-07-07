@@ -10,8 +10,11 @@ sys.path.insert(0, ROOT)
 
 from mutmatch import ods                       # noqa: E402
 from mutmatch.vcf import read_vcf              # noqa: E402
-from mutmatch.references import read_reference, _parse_coord  # noqa: E402
+from mutmatch.references import (               # noqa: E402
+    read_reference, read_any, read_clinical_wide, _parse_coord, norm_hgvs,
+)
 from mutmatch.match import FilterConfig, merge_all, match_known  # noqa: E402
+from mutmatch.report import synthesis_table     # noqa: E402
 
 EX = os.path.join(ROOT, "examples")
 
@@ -65,10 +68,7 @@ class TestPipeline(unittest.TestCase):
             read_vcf(os.path.join(EX, "vcf", "JB_01_1_fast.gz.results.vcf")),
             read_vcf(os.path.join(EX, "vcf", "JB_01_2_fast.gz.results.vcf")),
         ]
-        self.known = (
-            read_reference(os.path.join(EX, "Fichier_CHU.ods"))
-            + read_reference(os.path.join(EX, "Results_patientJB.ods"))
-        )
+        self.known = read_reference(os.path.join(EX, "Fichier_CHU.ods"))
 
     def test_merge_pairs(self):
         per = merge_all(self.vcfs, FilterConfig())
@@ -84,14 +84,14 @@ class TestPipeline(unittest.TestCase):
         per = merge_all(self.vcfs, FilterConfig())
         matches = match_known(per, self.known)
         by_query = {m.known.query: m for m in matches}
-        # correspondance exacte via les colonnes ref/alt du Fichier_CHU
-        self.assertEqual(by_query["FLT3-ITD-76"].match_level, "exact")
-        # correspondance exacte via la coordonnee chr-pos-ref-alt de Results
-        self.assertEqual(by_query["FLT3-ITD-76;p.Xaa"].match_level, "exact")
-        # correspondance par position seule
-        self.assertEqual(by_query["FLT3-ins36"].match_level, "position")
-        # mutation connue non detectee
-        self.assertEqual(by_query["FLT3-D835"].match_level, "none")
+        # ITD FLT3 : correspondance exacte (chr+pos+ref+alt)
+        self.assertEqual(by_query["FLT3:c.1747_1794dup"].match_level, "exact")
+        # seule la position coincide -> 'position'
+        self.assertEqual(by_query["FLT3:c.pos"].match_level, "position")
+        # CEBPA (chr19) hors de portee du VCF FLT3 -> non detecte
+        self.assertEqual(by_query["CEBPA:c.1015_1027dup"].match_level, "none")
+        # SNV FLT3 absent du VCF -> non detecte
+        self.assertEqual(by_query["FLT3:c.2503G>T"].match_level, "none")
 
     def test_filter_min_m(self):
         per = merge_all(self.vcfs, FilterConfig(min_m=5))
@@ -103,6 +103,56 @@ class TestPipeline(unittest.TestCase):
         per = merge_all(self.vcfs, FilterConfig(require_both_pairs=True))
         positions = {mv.pos for mv in per["JB_01"]}
         self.assertEqual(positions, {28034317})
+
+
+class TestClinicalWide(unittest.TestCase):
+    def test_read_any_detects_clinical(self):
+        kind, items = read_any(os.path.join(EX, "Results_patientJB.ods"))
+        self.assertEqual(kind, "clinical")
+        genes = {m.gene for m in items}
+        self.assertEqual(genes, {"FLT3", "CEBPA"})
+        flt3 = [m for m in items if m.hgvs_c == "c.1747_1794dup"][0]
+        self.assertEqual(flt3.sample_id, "JB_01")
+        self.assertEqual(flt3.hgvs, "FLT3:c.1747_1794dup")
+        self.assertEqual(flt3.hgvs_p, "p.G583_E598dup")
+
+    def test_read_any_detects_coord(self):
+        kind, items = read_any(os.path.join(EX, "Fichier_CHU.ods"))
+        self.assertEqual(kind, "coord")
+
+    def test_norm_hgvs_join(self):
+        self.assertEqual(
+            norm_hgvs("FLT3 : c.1747_1794dup; p.G583_E598dup"),
+            norm_hgvs("FLT3:c.1747_1794dup"),
+        )
+
+    def test_synthesis(self):
+        per = merge_all(self.vcfs, FilterConfig())
+        matches = match_known(per, self.known)
+        clinical = read_clinical_wide(os.path.join(EX, "Results_patientJB.ods"))
+        vcf_chroms = {mv.chrom for v in per.values() for mv in v}
+        rows = synthesis_table(clinical, matches, vcf_chroms)
+        header = rows[0]
+        idx = {h: i for i, h in enumerate(header)}
+        by_gene_c = {(r[idx["gene"]], r[idx["hgvs_c"]]): r for r in rows[1:]}
+
+        # FLT3 ITD : couvert par le VCF et detecte
+        itd = by_gene_c[("FLT3", "c.1747_1794dup")]
+        self.assertEqual(itd[idx["couvert_par_ce_vcf"]], "oui")
+        self.assertEqual(itd[idx["detecte"]], "oui")
+        self.assertEqual(itd[idx["caryotype"]], "46,XX[40]")
+
+        # CEBPA : chr19, non couvert par ce VCF FLT3
+        cebpa = by_gene_c[("CEBPA", "c.1015_1027dup")]
+        self.assertEqual(cebpa[idx["couvert_par_ce_vcf"]], "non")
+        self.assertEqual(cebpa[idx["chrom"]], "19")
+
+    def setUp(self):
+        self.vcfs = [
+            read_vcf(os.path.join(EX, "vcf", "JB_01_1_fast.gz.results.vcf")),
+            read_vcf(os.path.join(EX, "vcf", "JB_01_2_fast.gz.results.vcf")),
+        ]
+        self.known = read_reference(os.path.join(EX, "Fichier_CHU.ods"))
 
 
 if __name__ == "__main__":

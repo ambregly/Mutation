@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Genere les fichiers .ods de reference d'exemple.
 
-Reproductible : relancer ce script recree examples/Fichier_CHU.ods et
-examples/Results_patientJB.ods.
+Reproductible : relancer ce script recree
+  * examples/Fichier_CHU.ods       (format "coordonnees", pour le matching VCF)
+  * examples/Results_patientJB.ods (format "clinique large", par patient)
 """
 
 import os
@@ -16,25 +17,30 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ALT_ITD = ("CAAATTAGCAGGGTGTTGTGACAGGTGCCACCCAGCCTGGCCACCGTGGTG"
            "AAACTCCGTCTCTACTAAAAATACAA")
 
-# Fichier_CHU : mutations connues avec coordonnees completes.
+# Fichier_CHU : une mutation par ligne, avec coordonnees genomiques.
+# La colonne Query est en nomenclature 'GENE:c.xxx' (comme dans les vraies
+# donnees), ce qui permet de la relier au fichier clinique.
 fichier_chu = [
     ["Query", "#chr", "start", "ID", "ref", "alt", "patient id", "sample_id"],
-    # correspondance exacte avec le variant detecte dans JB_01
-    ["FLT3-ITD-76", "13", "28034317", ".", "C", ALT_ITD, "P001", "JB_01"],
-    # mutation connue NON detectee (pour illustrer un "non detecte")
-    ["FLT3-D835", "13", "28035000", ".", "A", "T", "P001", "JB_01"],
+    # ITD FLT3 presente dans le VCF -> correspondance exacte
+    ["FLT3:c.1747_1794dup", "13", "28034317", ".", "C", ALT_ITD, "JB_01", "JB_01"],
+    # variant FLT3 dont seule la position coincide -> correspondance 'position'
+    ["FLT3:c.pos", "13", "28034314", ".", "G", "GA", "JB_01", "JB_01"],
+    # mutation CEBPA (chr19) : hors de la portee du VCF FLT3 -> non couverte
+    ["CEBPA:c.1015_1027dup", "19", "33301387", ".", "C", "CGGAAGATGCCCCG",
+     "JB_01", "JB_01"],
+    # SNV FLT3 absent du VCF -> non detecte
+    ["FLT3:c.2503G>T", "13", "28035000", ".", "A", "T", "JB_01", "JB_01"],
 ]
 
-# Results_patientJB : Query / Position.
-# La colonne Position encode la coordonnee complete 'chr-pos-ref-alt'
-# (ex. reel : 19-33301387-C-CGGAAGATGCCCCG). On ajoute volontairement une
-# colonne intermediaire, comme dans les fichiers reels, pour verifier le repli
-# de detection de coordonnee (le lecteur scanne la ligne si besoin).
+# Results_patientJB : format clinique large, une ligne par patient. Les
+# colonnes de mutations (a partir de 'Mutations NGS') sont en nombre variable.
 results_jb = [
-    ["Query", "Position"],
-    ["FLT3-ITD-76;p.Xaa", "FLT3-ITD-76", "13-28034317-C-" + ALT_ITD],
-    # position seule -> correspondance par position
-    ["FLT3-ins36", "13:28034314"],
+    ["N° Echantillon", "Sample", "Caryotype", "Mutations NGS"],
+    ["SMO000001 X Y", "JB_01", "46,XX[40]",
+     "FLT3 : c.1747_1794dup; p.G583_E598dup",
+     "CEBPA : c.1015_1027dup; p.Arg343ProfsTer64",
+     "FLT3 : c.2503G>T; p.Asp835Tyr"],
 ]
 
 ods.write_table(os.path.join(HERE, "Fichier_CHU.ods"), fichier_chu)

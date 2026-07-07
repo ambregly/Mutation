@@ -7,6 +7,12 @@ import os
 
 from . import ods
 from .match import MergedVariant, KnownMatch
+from .references import ClinicalMutation, norm_hgvs
+from .vcf import norm_chrom
+
+
+def _norm_sample(s: str) -> str:
+    return str(s).strip().lower().replace("-", "_") if s else ""
 
 
 def _fmt(v) -> str:
@@ -90,6 +96,58 @@ def novel_table(per_sample: dict[str, list[MergedVariant]]) -> list[list[str]]:
     return rows
 
 
+def synthesis_table(clinical: list[ClinicalMutation],
+                    matches: list[KnownMatch],
+                    vcf_chroms: set) -> list[list[str]]:
+    """Synthese par patient : mutations cliniques (HGVS) x detection VCF.
+
+    Les mutations cliniques (Results_patientJB, sans coordonnees) sont croisees
+    avec les coordonnees + le statut de detection issus du Fichier_CHU, par
+    (echantillon, GENE:c.xxx).
+    """
+    # Table de correspondance : (echantillon, hgvs) -> infos de detection.
+    lut = {}
+    for km in matches:
+        k = km.known
+        sample = k.sample_id or k.patient_id
+        key = (_norm_sample(sample), norm_hgvs(k.query))
+        vaf = max([mv.max_vaf for mv in km.matched_variants], default=None)
+        mtot = (sum(mv.total_m for mv in km.matched_variants)
+                if km.matched_variants else None)
+        lut[key] = {
+            "level": km.match_level, "chrom": k.chrom, "pos": k.pos,
+            "ref": k.ref, "alt": k.alt, "vaf": vaf, "m": mtot,
+        }
+
+    header = [
+        "sample", "n_echantillon", "caryotype", "gene",
+        "hgvs_c", "hgvs_p", "chrom", "pos", "ref", "alt",
+        "couvert_par_ce_vcf", "detecte", "niveau_correspondance",
+        "VAF_max", "M_total",
+    ]
+    rows = [header]
+    for c in sorted(clinical, key=lambda m: (_norm_sample(m.sample_id), m.gene)):
+        info = lut.get((_norm_sample(c.sample_id), norm_hgvs(c.hgvs)))
+        if info is not None:
+            covered = "oui" if norm_chrom(info["chrom"]) in vcf_chroms else "non"
+            detecte = "oui" if info["level"] != "none" else "non"
+            chrom, pos, ref, alt = info["chrom"], info["pos"], info["ref"], info["alt"]
+            level, vaf, mtot = info["level"], info["vaf"], info["m"]
+        else:
+            # mutation clinique sans coordonnee correspondante dans le Fichier_CHU
+            covered = "inconnu (pas de coordonnee)"
+            detecte = "?"
+            chrom = pos = ref = alt = ""
+            level = ""
+            vaf = mtot = ""
+        rows.append([_fmt(x) for x in [
+            c.sample_id, c.n_echantillon, c.caryotype, c.gene,
+            c.hgvs_c, c.hgvs_p, chrom, pos, ref, alt,
+            covered, detecte, level, vaf, mtot,
+        ]])
+    return rows
+
+
 # --- Ecriture -------------------------------------------------------------
 
 def write_tsv(path: str, rows: list[list[str]]) -> None:
@@ -101,14 +159,20 @@ def write_tsv(path: str, rows: list[list[str]]) -> None:
 def write_outputs(outdir: str,
                   per_sample: dict[str, list[MergedVariant]],
                   matches: list[KnownMatch],
+                  clinical: list[ClinicalMutation] | None = None,
                   also_ods: bool = False) -> list[str]:
-    """Ecrit les trois tables dans `outdir`. Renvoie la liste des fichiers crees."""
+    """Ecrit les tables dans `outdir`. Renvoie la liste des fichiers crees."""
     os.makedirs(outdir, exist_ok=True)
     tables = {
         "variants_par_echantillon": variants_table(per_sample),
         "correspondance_mutations_connues": known_matches_table(matches),
         "variants_nouveaux": novel_table(per_sample),
     }
+    if clinical:
+        vcf_chroms = {norm_chrom(mv.chrom)
+                      for variants in per_sample.values() for mv in variants}
+        tables["synthese_par_patient"] = synthesis_table(
+            clinical, matches, vcf_chroms)
     written = []
     for name, rows in tables.items():
         tsv = os.path.join(outdir, name + ".tsv")
