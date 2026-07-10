@@ -182,8 +182,7 @@ Le **type** de chaque fichier `--reference` est reconnu automatiquement :
 
 ## Hypotheses / points a valider
 
-Ces choix sont volontairement explicites — dites-moi si l'un ne correspond pas a
-votre besoin, ils sont faciles a ajuster :
+Ces choix sont volontairement explicites :
 
 1. **Coordonnees** : on suppose que `start` du `Fichier_CHU` est la position VCF
    (1-based). Si vos coordonnees sont 0-based ou proviennent d'un autre
