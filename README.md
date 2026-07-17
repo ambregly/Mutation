@@ -59,6 +59,29 @@ Cela produit dans `resultats/` :
 
 Ajouter `--ods-output` pour ecrire aussi ces tables au format `.ods`.
 
+## Carte des duplications (figure SVG)
+
+`plot_itd.py` produit une figure a partir de `variants_par_echantillon.tsv` :
+
+```bash
+python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
+    --out resultats/carte_itd.svg
+```
+
+- **axe Y (a gauche)** : positions du chromosome 13, de la plus basse (en haut)
+  a la plus haute (en bas) ;
+- **axe X (en haut)** : les patients ;
+- chaque duplication (`DUP=oui` par defaut ; `--all` pour tous les variants) est
+  un segment `[pos, pos+svlen]` avec un point a son debut, taille ~ VAF ;
+- couleurs : **rouge** = ITD de reference (`connu=oui`, etendue surlignee),
+  **bleu** = variant propre au patient, **gris** = artefact recurrent (present
+  dans `>= N` patients, `--artefact-nb-echantillons`, defaut 5).
+
+Un variant bleu proche (voire inclus dans l'etendue) d'une ITD rouge est un
+**sous-groupe probable** de la duplication principale ; les rangees grises
+alignees sur tous les patients sont des artefacts systematiques. Le SVG est
+vectoriel (zoom sans perte, ouvrable dans un navigateur ou LibreOffice Draw).
+
 ## Essayer sur les donnees d'exemple
 
 Le depot contient un jeu d'exemple (`examples/`) reproduisant vos formats :
