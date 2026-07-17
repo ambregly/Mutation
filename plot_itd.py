@@ -25,6 +25,8 @@ import csv
 import html
 import math
 import os
+import shutil
+import subprocess
 
 
 def _read(path: str, dup_only: bool):
@@ -229,22 +231,96 @@ def build_svg(variants, dup_only=True):
     return "\n".join(s)
 
 
+def svg_to_png(svg_path: str, png_path: str, scale: float = 2.0) -> str | None:
+    """Convertit un SVG en PNG avec le premier outil disponible.
+
+    Essaie dans l'ordre : cairosvg (module Python), rsvg-convert, inkscape,
+    puis un navigateur Chromium/Chrome en mode headless. Renvoie le nom de
+    l'outil utilise, ou None si aucun n'est disponible.
+    """
+    svg_path = os.path.abspath(svg_path)
+    png_path = os.path.abspath(png_path)
+
+    # 1. cairosvg (pip install cairosvg)
+    try:
+        import cairosvg  # type: ignore
+        cairosvg.svg2png(url=svg_path, write_to=png_path, scale=scale)
+        return "cairosvg"
+    except Exception:
+        pass
+
+    # 2. rsvg-convert (paquet librsvg2-bin)
+    if shutil.which("rsvg-convert"):
+        subprocess.run(["rsvg-convert", "-z", str(scale), "-o", png_path,
+                        svg_path], check=True)
+        return "rsvg-convert"
+
+    # 3. inkscape
+    if shutil.which("inkscape"):
+        subprocess.run(["inkscape", svg_path, "--export-type=png",
+                        "--export-filename=" + png_path], check=True)
+        return "inkscape"
+
+    # 4. navigateur Chromium / Chrome (headless)
+    for exe in ("chromium", "chromium-browser", "google-chrome",
+                "google-chrome-stable", "chrome", "headless_shell"):
+        path = shutil.which(exe)
+        if path:
+            w = int(1620 * scale / 2)
+            h = int(1010 * scale / 2)
+            subprocess.run([path, "--headless", "--no-sandbox", "--disable-gpu",
+                            "--force-device-scale-factor=%s" % scale,
+                            "--screenshot=" + png_path,
+                            "--window-size=%d,%d" % (w, h),
+                            "file://" + svg_path], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return os.path.basename(path)
+
+    return None
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--input", required=True,
                    help="Chemin de variants_par_echantillon.tsv")
-    p.add_argument("--out", default="carte_itd.svg", help="Fichier SVG de sortie")
+    p.add_argument("--out", default="carte_itd.svg",
+                   help="Fichier de sortie. Extension .svg ou .png (le PNG "
+                        "necessite cairosvg, rsvg-convert, inkscape ou un "
+                        "navigateur Chromium/Chrome).")
+    p.add_argument("--png", action="store_true",
+                   help="Ecrire aussi un PNG a cote du SVG.")
+    p.add_argument("--scale", type=float, default=2.0,
+                   help="Facteur de resolution du PNG (2 = ~2x, plus net).")
     p.add_argument("--all", action="store_true",
                    help="Tracer tous les variants (pas seulement DUP=oui)")
     args = p.parse_args(argv)
 
     variants = _read(args.input, dup_only=not args.all)
     svg = build_svg(variants, dup_only=not args.all)
-    with open(args.out, "w", encoding="utf-8") as fh:
+
+    # Le SVG est toujours ecrit (c'est la source). Si --out finit par .png, on
+    # ecrit le SVG a cote et on rend le PNG demande.
+    want_png = args.png or args.out.lower().endswith(".png")
+    svg_path = args.out[:-4] + ".svg" if args.out.lower().endswith(".png") else args.out
+    with open(svg_path, "w", encoding="utf-8") as fh:
         fh.write(svg)
     print("Figure ecrite : %s (%d duplications, %d patients)"
-          % (args.out, len(variants), len({v["sample"] for v in variants})))
+          % (svg_path, len(variants), len({v["sample"] for v in variants})))
+
+    if want_png:
+        png_path = (args.out if args.out.lower().endswith(".png")
+                    else svg_path[:-4] + ".png")
+        tool = svg_to_png(svg_path, png_path, scale=args.scale)
+        if tool:
+            print("PNG ecrit : %s (via %s)" % (png_path, tool))
+        else:
+            print("PNG non genere : aucun convertisseur trouve.\n"
+                  "  Installez l'un de ces outils, puis relancez :\n"
+                  "    pip install cairosvg      # ou\n"
+                  "    apt install librsvg2-bin  # fournit rsvg-convert\n"
+                  "  Ou convertissez a la main : "
+                  "rsvg-convert -z 2 -o %s %s" % (png_path, svg_path))
 
 
 if __name__ == "__main__":

@@ -68,6 +68,17 @@ python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
     --out resultats/carte_itd.svg
 ```
 
+Pour obtenir un **PNG** : soit `--out ...carte_itd.png`, soit `--png` (ecrit le
+PNG a cote du SVG), avec `--scale 2` pour la resolution. Le PNG utilise le
+premier outil disponible (`cairosvg`, `rsvg-convert`, `inkscape` ou un
+navigateur Chromium/Chrome) ; si aucun n'est trouve, le SVG reste produit et la
+commande de conversion manuelle est affichee.
+
+```bash
+python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
+    --out resultats/carte_itd.png --scale 2
+```
+
 - **axe Y (a gauche)** : positions du chromosome 13, de la plus basse (en haut)
   a la plus haute (en bas) ;
 - **axe X (en haut)** : les patients ;
