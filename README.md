@@ -74,13 +74,11 @@ python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
 - chaque duplication (`DUP=oui` par defaut ; `--all` pour tous les variants) est
   un segment `[pos, pos+svlen]` avec un point a son debut, taille ~ VAF ;
 - couleurs : **rouge** = ITD de reference (`connu=oui`, etendue surlignee),
-  **bleu** = variant propre au patient, **gris** = artefact recurrent (present
-  dans `>= N` patients, `--artefact-nb-echantillons`, defaut 5).
+  **bleu** = nouveau variant (`connu=non`).
 
 Un variant bleu proche (voire inclus dans l'etendue) d'une ITD rouge est un
-**sous-groupe probable** de la duplication principale ; les rangees grises
-alignees sur tous les patients sont des artefacts systematiques. Le SVG est
-vectoriel (zoom sans perte, ouvrable dans un navigateur ou LibreOffice Draw).
+**sous-groupe probable** de la duplication principale. Le SVG est vectoriel
+(zoom sans perte, ouvrable dans un navigateur ou LibreOffice Draw).
 
 ## Essayer sur les donnees d'exemple
 

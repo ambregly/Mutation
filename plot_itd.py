@@ -79,25 +79,13 @@ def _lanes(variants, gap_px, ytop):
     return ordered, n_lanes
 
 
-def build_svg(variants, dup_only=True, artifact_min_samples=5):
+def build_svg(variants, dup_only=True):
     samples = sorted({v["sample"] for v in variants})
     if not variants:
         raise SystemExit("Aucune duplication a tracer.")
 
-    # Recurrence inter-patients : un meme variant (pos, ref, alt) vu chez
-    # beaucoup de patients est un artefact systematique, pas un sous-groupe de
-    # l'ITD d'un patient.
-    rec = {}
     for v in variants:
-        rec.setdefault((v["pos"], v["ref"], v["alt"]), set()).add(v["sample"])
-    for v in variants:
-        n = len(rec[(v["pos"], v["ref"], v["alt"])])
-        if v["known"]:
-            v["cat"] = "known"
-        elif n >= artifact_min_samples:
-            v["cat"] = "artefact"
-        else:
-            v["cat"] = "new"
+        v["cat"] = "known" if v["known"] else "new"
 
     pos_lo = min(v["pos"] for v in variants)
     pos_hi = max(v["pos"] + v["svlen"] for v in variants)
@@ -122,15 +110,13 @@ def build_svg(variants, dup_only=True, artifact_min_samples=5):
         return ML + i * col_w
 
     C_KNOWN = "#E4572E"      # ITD de reference (mise en lumiere)
-    C_NEW = "#3A7BD5"        # nouveau variant propre au patient
-    C_ARTE = "#B0B0B0"       # nouveau variant recurrent (artefact)
+    C_NEW = "#3A7BD5"        # nouveau variant
     C_AXIS = "#444"
     C_GRID = "#e6e6e6"
     C_BAND = "#E4572E"
     STYLE = {
         "known": (C_KNOWN, 4.0, 1.0),
         "new": (C_NEW, 2.0, 0.8),
-        "artefact": (C_ARTE, 1.6, 0.55),
     }
 
     s = []
@@ -145,8 +131,8 @@ def build_svg(variants, dup_only=True, artifact_min_samples=5):
              % (ML, "(DUP uniquement)" if dup_only else ""))
     s.append('<text x="%d" y="56" font-size="13" fill="#666">'
              'position chr13 (basse en haut, haute en bas) x patient ; '
-             'rouge = ITD de reference, bleu = variant propre au patient, '
-             'gris = artefact recurrent ; taille du point ~ VAF</text>' % ML)
+             'rouge = ITD de reference, bleu = nouveau variant ; '
+             'taille du point ~ VAF</text>' % ML)
 
     # Grille + graduations Y (positions)
     n_ticks = 8
@@ -214,8 +200,7 @@ def build_svg(variants, dup_only=True, artifact_min_samples=5):
              'fill="#333">Legende</text>' % (lx, ly))
     items = [
         (C_KNOWN, 4.0, 5.0, "ITD de reference (connu=oui)"),
-        (C_NEW, 2.0, 3.5, "variant propre au patient"),
-        (C_ARTE, 1.6, 3.0, "artefact recurrent (>= %d patients)" % artifact_min_samples),
+        (C_NEW, 2.0, 3.5, "nouveau variant (connu=non)"),
     ]
     for j, (col, wdt, rr, label) in enumerate(items):
         yy = ly + 24 + j * 24
@@ -226,7 +211,7 @@ def build_svg(variants, dup_only=True, artifact_min_samples=5):
                  % (lx + 13, yy, rr, col))
         s.append('<text x="%d" y="%d" font-size="12" fill="#333">%s</text>'
                  % (lx + 34, yy + 4, label))
-    yb = ly + 24 + 3 * 24
+    yb = ly + 24 + len(items) * 24
     s.append('<rect x="%d" y="%d" width="26" height="14" fill="%s" '
              'opacity="0.13"/>' % (lx, yb, C_BAND))
     s.append('<text x="%d" y="%d" font-size="12" fill="#333">etendue de '
@@ -252,14 +237,10 @@ def main(argv=None):
     p.add_argument("--out", default="carte_itd.svg", help="Fichier SVG de sortie")
     p.add_argument("--all", action="store_true",
                    help="Tracer tous les variants (pas seulement DUP=oui)")
-    p.add_argument("--artefact-nb-echantillons", type=int, default=5, metavar="N",
-                   help="Un variant present dans >= N patients est colore comme "
-                        "artefact recurrent (gris).")
     args = p.parse_args(argv)
 
     variants = _read(args.input, dup_only=not args.all)
-    svg = build_svg(variants, dup_only=not args.all,
-                    artifact_min_samples=args.artefact_nb_echantillons)
+    svg = build_svg(variants, dup_only=not args.all)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(svg)
     print("Figure ecrite : %s (%d duplications, %d patients)"
