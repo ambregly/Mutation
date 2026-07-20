@@ -60,6 +60,11 @@ def _read(path: str, dup_only: bool):
     return out
 
 
+def _radius(vaf) -> float:
+    """Rayon d'un point en fonction de la VAF (meme formule partout)."""
+    return 2.0 + min(6.0, 260.0 * float(vaf or 0.0))
+
+
 def _lanes(variants, gap_px, ytop):
     """Repartit les variants d'un patient en 'couloirs' pour eviter le chevauchement."""
     ordered = sorted(variants, key=lambda v: v["pos"])
@@ -186,7 +191,7 @@ def build_svg(variants, dup_only=True):
             else:
                 x = x0 + 8 + inner * v["lane"] / (n_lanes - 1)
             y1, y2 = y(v["pos"]), y(v["pos"] + v["svlen"])
-            r = 2.0 + min(6.0, 260.0 * v["vaf"])
+            r = _radius(v["vaf"])
             col, wdt, op = STYLE[v["cat"]]
             rr = max(r, 4.5) if v["cat"] == "known" else r
             s.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" '
@@ -226,6 +231,22 @@ def build_svg(variants, dup_only=True):
              "(bleu) de l'ITD rouge</text>" % (lx, yb + 84))
     s.append('<text x="%d" y="%d" font-size="11" fill="#666">= sous-groupe '
              'probable de l\'ITD.</text>' % (lx, yb + 100))
+
+    # Echelle de taille = VAF
+    ys = yb + 132
+    s.append('<text x="%d" y="%d" font-size="12" font-weight="bold" '
+             'fill="#333">Taille du point = VAF</text>' % (lx, ys))
+    scale_vaf = [(0.001, "0,1 %"), (0.005, "0,5 %"),
+                 (0.01, "1 %"), (0.02, "2 %")]
+    cx = lx + 13
+    row_y = ys + 24
+    for vaf, label in scale_vaf:
+        r = _radius(vaf)
+        s.append('<circle cx="%d" cy="%.1f" r="%.1f" fill="%s" '
+                 'opacity="0.85"/>' % (cx, row_y, r, C_NEW))
+        s.append('<text x="%d" y="%.1f" font-size="11" fill="#333">'
+                 'VAF %s</text>' % (lx + 34, row_y + 4, label))
+        row_y += 26
 
     s.append('</svg>')
     return "\n".join(s)
