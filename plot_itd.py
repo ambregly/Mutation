@@ -268,7 +268,7 @@ def svg_to_png(svg_path: str, png_path: str, scale: float = 2.0) -> str | None:
     """Convertit un SVG en PNG avec le premier outil disponible.
 
     Essaie dans l'ordre : cairosvg (module Python), rsvg-convert, inkscape,
-    puis un navigateur Chromium/Chrome en mode headless. Renvoie le nom de
+    un navigateur Chromium/Chrome, puis Firefox (headless). Renvoie le nom de
     l'outil utilise, ou None si aucun n'est disponible.
     """
     svg_path = os.path.abspath(svg_path)
@@ -294,22 +294,48 @@ def svg_to_png(svg_path: str, png_path: str, scale: float = 2.0) -> str | None:
                         "--export-filename=" + png_path], check=True)
         return "inkscape"
 
+    # Dimensions du SVG (pour dimensionner la fenetre du navigateur).
+    w_svg, h_svg = _svg_size(svg_path)
+
     # 4. navigateur Chromium / Chrome (headless)
     for exe in ("chromium", "chromium-browser", "google-chrome",
                 "google-chrome-stable", "chrome", "headless_shell"):
         path = shutil.which(exe)
         if path:
-            w = int(1620 * scale / 2)
-            h = int(1010 * scale / 2)
             subprocess.run([path, "--headless", "--no-sandbox", "--disable-gpu",
                             "--force-device-scale-factor=%s" % scale,
                             "--screenshot=" + png_path,
-                            "--window-size=%d,%d" % (w, h),
+                            "--window-size=%d,%d" % (w_svg + 4, h_svg + 4),
                             "file://" + svg_path], check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return os.path.basename(path)
 
+    # 5. Firefox (headless) - resolution 1x
+    ff = shutil.which("firefox")
+    if ff:
+        subprocess.run([ff, "--headless",
+                        "--window-size=%d,%d" % (w_svg + 4, h_svg + 4),
+                        "--screenshot", png_path, "file://" + svg_path],
+                       check=True, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        if os.path.exists(png_path):
+            return "firefox"
+
     return None
+
+
+def _svg_size(svg_path: str) -> tuple[int, int]:
+    """Lit les attributs width/height du SVG (repli 1600x900)."""
+    try:
+        with open(svg_path, encoding="utf-8") as fh:
+            head = fh.read(600)
+        import re
+        w = re.search(r'width="(\d+)"', head)
+        h = re.search(r'height="(\d+)"', head)
+        return (int(w.group(1)) if w else 1600,
+                int(h.group(1)) if h else 900)
+    except Exception:
+        return 1600, 900
 
 
 def main(argv=None):
@@ -348,12 +374,16 @@ def main(argv=None):
         if tool:
             print("PNG ecrit : %s (via %s)" % (png_path, tool))
         else:
-            print("PNG non genere : aucun convertisseur trouve.\n"
-                  "  Installez l'un de ces outils, puis relancez :\n"
-                  "    pip install cairosvg      # ou\n"
-                  "    apt install librsvg2-bin  # fournit rsvg-convert\n"
-                  "  Ou convertissez a la main : "
-                  "rsvg-convert -z 2 -o %s %s" % (png_path, svg_path))
+            print("PNG non genere : aucun convertisseur trouve "
+                  "(cairosvg, rsvg-convert, inkscape, chromium/chrome, firefox).\n"
+                  "  Sans droits admin, le plus simple est un environnement "
+                  "virtuel :\n"
+                  "    python3 -m venv ~/venv-mut\n"
+                  "    ~/venv-mut/bin/pip install cairosvg\n"
+                  "    ~/venv-mut/bin/python %s --input ... --out %s\n"
+                  "  Avec sudo : apt install librsvg2-bin (fournit rsvg-convert).\n"
+                  "  Ou ouvrez simplement le SVG dans un navigateur :\n"
+                  "    %s" % (os.path.basename(__file__), png_path, svg_path))
 
 
 if __name__ == "__main__":
