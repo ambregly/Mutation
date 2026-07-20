@@ -134,12 +134,12 @@ def build_svg(variants, dup_only=True):
 
     # Titre
     s.append('<text x="%d" y="34" font-size="20" font-weight="bold" fill="#222">'
-             'Carte des duplications FLT3-ITD %s</text>'
-             % (ML, "(DUP uniquement)" if dup_only else ""))
+             'Carte des duplications détectées par FiLT3r</text>' % ML)
     s.append('<text x="%d" y="56" font-size="13" fill="#666">'
              'position chr13 (basse en haut, haute en bas) x patient ; '
              'rouge = ITD de reference, bleu = nouveau variant ; '
-             'taille du point ~ VAF</text>' % ML)
+             'taille du point ~ VAF%s</text>'
+             % (ML, " ; DUP uniquement" if dup_only else ""))
 
     # Grille + graduations Y (positions)
     n_ticks = 8
@@ -168,6 +168,18 @@ def build_svg(variants, dup_only=True):
         s.append('<text x="%.1f" y="%d" font-size="12" fill="#333" '
                  'text-anchor="start" transform="rotate(-55 %.1f %d)">%s</text>'
                  % (cx, MT - 10, cx, MT - 10, html.escape(sample)))
+
+    # Grille verticale : une ligne a chaque separation de patient
+    for i in range(len(samples) + 1):
+        xx = col_x(i)
+        s.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="%s" '
+                 'stroke-width="1"/>' % (xx, MT, xx, MT + plot_h, "#d0d0d0"))
+    # Cadre de la zone de trace
+    s.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" '
+             'stroke-width="1.2"/>' % (ML, MT, ML + plot_w, MT, C_AXIS))
+    s.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" '
+             'stroke-width="1.2"/>'
+             % (ML, MT + plot_h, ML + plot_w, MT + plot_h, C_AXIS))
 
     # Bandes de surlignage : etendue de l'ITD connu de chaque patient
     for i, sample in enumerate(samples):
