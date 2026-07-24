@@ -1,0 +1,6 @@
+# Regions couvertes par la reference FiLT3r sequence-FLT3-Ex13-14-15-20.fa
+# Coordonnees genomiques (GRCh38, chr13, brin -1) lues dans les en-tetes du FASTA
+# de reference (>13:28033760-28034429:-1 et >13:28018467-28018589:-1).
+# Utilisation :  plot_itd.py ... --exons examples/flt3_regions.bed
+13	28033760	28034429	Exons 13-14-15 (ITD)	#F6C177
+13	28018467	28018589	Exon 20 (TKD)	#9CCFD8
