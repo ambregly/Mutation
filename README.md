@@ -91,6 +91,34 @@ Un variant bleu proche (voire inclus dans l'etendue) d'une ITD rouge est un
 **sous-groupe probable** de la duplication principale. Le SVG est vectoriel
 (zoom sans perte, ouvrable dans un navigateur ou LibreOffice Draw).
 
+### Colorer les exons (`--exons`)
+
+Pour situer les mutations par rapport aux exons, `--exons` colorie des bandes
+horizontales. Le plus simple et le plus **exact** est de passer directement la
+reference FiLT3r (les coordonnees sont lues dans les en-tetes du FASTA) :
+
+```bash
+python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
+    --exons sequence-FLT3-Ex13-14-15-20.fa \
+    --out resultats/carte_itd.png --scale 2
+```
+
+`--exons` accepte aussi un **BED** (`chrom  start  end  [nom]  [couleur]`) ; voir
+le gabarit `examples/flt3_exons.example.bed` (dont les coordonnees sont des
+exemples a remplacer).
+
+### Taille des points : VAF ou nombre de reads (`--size-by`)
+
+Par defaut la taille code la **VAF** (`--size-by vaf`). Pour la **meme carte
+avec le nombre de reads (M)** :
+
+```bash
+python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
+    --size-by m --out resultats/carte_itd_M.png --scale 2
+```
+
+La legende affiche l'echelle correspondante (VAF en %, ou nombre de reads).
+
 ## Essayer sur les donnees d'exemple
 
 Le depot contient un jeu d'exemple (`examples/`) reproduisant vos formats :

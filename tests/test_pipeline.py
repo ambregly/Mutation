@@ -172,6 +172,53 @@ class TestClinicalWide(unittest.TestCase):
         self.known = read_reference(os.path.join(EX, "Fichier_CHU.ods"))
 
 
+class TestPlot(unittest.TestCase):
+    def test_read_exons_bed(self):
+        import plot_itd
+        exons = plot_itd.read_exons(os.path.join(EX, "flt3_exons.example.bed"))
+        self.assertEqual(len(exons), 2)
+        self.assertEqual(exons[0]["chrom"], "13")
+        self.assertEqual(exons[0]["start"], 28034100)
+        self.assertEqual(exons[0]["color"], "#F6C177")
+
+    def test_read_exons_fasta(self):
+        import plot_itd
+        with tempfile.TemporaryDirectory() as d:
+            fa = os.path.join(d, "ref.fa")
+            with open(fa, "w") as fh:
+                fh.write(">13:28033760-28034429:-1 FLT3\nACGT\n")
+            exons = plot_itd.read_exons(fa)
+        self.assertEqual(exons[0]["start"], 28033760)
+        self.assertEqual(exons[0]["end"], 28034429)
+
+    def test_radius_modes(self):
+        import plot_itd
+        # M : echelle log -> 1000 reads donne un plus gros rayon que 10
+        self.assertGreater(plot_itd._radius(1000, "m"), plot_itd._radius(10, "m"))
+        # VAF : plus la VAF est haute, plus le point est gros
+        self.assertGreater(plot_itd._radius(0.02, "vaf"),
+                           plot_itd._radius(0.001, "vaf"))
+
+    def test_build_svg_runs(self):
+        import plot_itd
+        variants = plot_itd._read(_mini_tsv(), dup_only=False)
+        svg = plot_itd.build_svg(variants, size_by="m")
+        self.assertIn("<svg", svg)
+
+
+def _mini_tsv():
+    """Ecrit un mini variants_par_echantillon.tsv et renvoie son chemin."""
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "v.tsv")
+    with open(path, "w") as fh:
+        fh.write("sample\tchrom\tpos\tref\talt\tsvlen\tDUP\ttrouve_dans_paires\t"
+                 "nb_paires\tM_R1\tVAF_R1\tWT_R1\tM_R2\tVAF_R2\tWT_R2\tM_total\t"
+                 "VAF_max\tconnu\tniveau_correspondance\tquery_connue\tpatient_id\n")
+        fh.write("JB_01\t13\t28034124\tA\tATTC\t48\toui\t1,2\t2\t320\t0.013\t100\t"
+                 "427\t0.017\t100\t747\t0.017\toui\texact\tFLT3:x\tJB_01\n")
+    return path
+
+
 class TestTriage(unittest.TestCase):
     def _mv(self, sample, pos, alt, svlen, dup, pairs, vaf, m):
         mv = MergedVariant(sample=sample, chrom="13", pos=pos, ref="C", alt=alt,

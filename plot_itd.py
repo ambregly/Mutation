@@ -25,6 +25,7 @@ import csv
 import html
 import math
 import os
+import re
 import shutil
 import subprocess
 
@@ -48,11 +49,17 @@ def _read(path: str, dup_only: bool):
             vaf = float(r[h["VAF_max"]]) if r[h["VAF_max"]] else 0.0
         except ValueError:
             vaf = 0.0
+        try:
+            m = int(r[h["M_total"]]) if h.get("M_total") is not None and \
+                r[h["M_total"]] else 0
+        except (ValueError, KeyError):
+            m = 0
         out.append({
             "sample": r[h["sample"]],
             "pos": pos,
             "svlen": svlen,
             "vaf": vaf,
+            "m": m,
             "ref": r[h["ref"]] if h.get("ref") is not None else "",
             "alt": r[h["alt"]] if h.get("alt") is not None else "",
             "known": r[h["connu"]] == "oui",
@@ -60,9 +67,62 @@ def _read(path: str, dup_only: bool):
     return out
 
 
-def _radius(vaf) -> float:
-    """Rayon d'un point en fonction de la VAF (meme formule partout)."""
-    return 2.0 + min(6.0, 260.0 * float(vaf or 0.0))
+def read_exons(path: str) -> list[dict]:
+    """Lit les regions d'exons a colorier.
+
+    Accepte :
+      * un FASTA (ex. la reference FiLT3r sequence-FLT3-Ex13-14-15-20.fa) : les
+        coordonnees sont extraites des en-tetes '>...13:28033760-28034429:-1...' ;
+      * un BED / TSV : colonnes chrom, start, end, [nom], [couleur].
+
+    Renvoie une liste de {chrom, start, end, name, color?}.
+    """
+    exons: list[dict] = []
+    with open(path, encoding="utf-8") as fh:
+        first = fh.read(1)
+        fh.seek(0)
+        if first == ">":  # FASTA
+            coord = re.compile(r"(?:chr)?(\w+)\s*:\s*(\d+)\s*-\s*(\d+)")
+            for line in fh:
+                if not line.startswith(">"):
+                    continue
+                m = coord.search(line)
+                if not m:
+                    continue
+                name = line[1:].strip().split()[0] if line[1:].strip() else ""
+                exons.append({"chrom": m.group(1),
+                              "start": int(m.group(2)), "end": int(m.group(3)),
+                              "name": name})
+        else:  # BED / TSV
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                cols = line.split("\t") if "\t" in line else line.split()
+                if len(cols) < 3:
+                    continue
+                try:
+                    start, end = int(cols[1]), int(cols[2])
+                except ValueError:
+                    continue
+                e = {"chrom": cols[0], "start": min(start, end),
+                     "end": max(start, end),
+                     "name": cols[3] if len(cols) > 3 else ""}
+                if len(cols) > 4 and cols[4].startswith("#"):
+                    e["color"] = cols[4]
+                exons.append(e)
+    return exons
+
+
+def _radius(value, size_by="vaf") -> float:
+    """Rayon d'un point selon la metrique choisie (meme formule partout).
+
+    - 'vaf' : proportionnel a la VAF (ratio) ;
+    - 'm'   : proportionnel au log10 du nombre de reads (M).
+    """
+    if size_by == "m":
+        return 2.0 + min(6.0, 1.7 * math.log10(float(value or 0.0) + 1.0))
+    return 2.0 + min(6.0, 260.0 * float(value or 0.0))
 
 
 def _lanes(variants, gap_px, ytop):
@@ -86,7 +146,7 @@ def _lanes(variants, gap_px, ytop):
     return ordered, n_lanes
 
 
-def build_svg(variants, dup_only=True):
+def build_svg(variants, dup_only=True, size_by="vaf", exons=None):
     samples = sorted({v["sample"] for v in variants})
     if not variants:
         raise SystemExit("Aucune duplication a tracer.")
@@ -135,11 +195,12 @@ def build_svg(variants, dup_only=True):
     # Titre
     s.append('<text x="%d" y="34" font-size="20" font-weight="bold" fill="#222">'
              'Carte des duplications détectées par FiLT3r</text>' % ML)
+    metric_label = "nombre de reads (M)" if size_by == "m" else "VAF"
     s.append('<text x="%d" y="56" font-size="13" fill="#666">'
              'position chr13 (basse en haut, haute en bas) x patient ; '
              'rouge = ITD de reference, bleu = nouveau variant ; '
-             'taille du point ~ VAF%s</text>'
-             % (ML, " ; DUP uniquement" if dup_only else ""))
+             'taille du point ~ %s%s</text>'
+             % (ML, metric_label, " ; DUP uniquement" if dup_only else ""))
 
     # Grille + graduations Y (positions)
     n_ticks = 8
@@ -181,6 +242,27 @@ def build_svg(variants, dup_only=True):
              'stroke-width="1.2"/>'
              % (ML, MT + plot_h, ML + plot_w, MT + plot_h, C_AXIS))
 
+    # Bandes d'exons (colorees) sur toute la largeur, si fournies.
+    exon_palette = ["#F6C177", "#9CCFD8", "#C4A7E7", "#A3BE8C",
+                    "#EBBCBA", "#B8C0E0"]
+    drawn_exons = []
+    for k, ex in enumerate(exons or []):
+        y1, y2 = y(ex["start"]), y(ex["end"])
+        top, bot = min(y1, y2), max(y1, y2)
+        # ignore les exons entierement hors de la fenetre affichee
+        if bot < MT or top > MT + plot_h:
+            continue
+        top = max(top, MT)
+        bot = min(bot, MT + plot_h)
+        color = ex.get("color") or exon_palette[k % len(exon_palette)]
+        s.append('<rect x="%d" y="%.1f" width="%d" height="%.1f" fill="%s" '
+                 'opacity="0.22"/>' % (ML, top, plot_w, max(bot - top, 1.5), color))
+        label = ex.get("name") or ("exon %d" % (k + 1))
+        s.append('<text x="%d" y="%.1f" font-size="11" fill="#333" '
+                 'text-anchor="end">%s</text>'
+                 % (ML + plot_w + 6, top + 12, html.escape(label)))
+        drawn_exons.append((label, color))
+
     # Bandes de surlignage : etendue de l'ITD connu de chaque patient
     for i, sample in enumerate(samples):
         x0 = col_x(i)
@@ -203,7 +285,7 @@ def build_svg(variants, dup_only=True):
             else:
                 x = x0 + 8 + inner * v["lane"] / (n_lanes - 1)
             y1, y2 = y(v["pos"]), y(v["pos"] + v["svlen"])
-            r = _radius(v["vaf"])
+            r = _radius(v[size_by], size_by)
             col, wdt, op = STYLE[v["cat"]]
             rr = max(r, 4.5) if v["cat"] == "known" else r
             s.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" '
@@ -238,26 +320,43 @@ def build_svg(variants, dup_only=True):
     s.append('<text x="%d" y="%d" font-size="11" fill="#666">segment vertical = '
              'etendue [pos, pos+svlen]</text>' % (lx, yb + 40))
     s.append('<text x="%d" y="%d" font-size="11" fill="#666">point = debut ; '
-             'taille ~ VAF</text>' % (lx, yb + 58))
+             'taille ~ %s</text>' % (lx, yb + 58, metric_label))
     s.append('<text x="%d" y="%d" font-size="11" fill="#666">Un variant proche '
              "(bleu) de l'ITD rouge</text>" % (lx, yb + 84))
     s.append('<text x="%d" y="%d" font-size="11" fill="#666">= sous-groupe '
              'probable de l\'ITD.</text>' % (lx, yb + 100))
 
-    # Echelle de taille = VAF
+    # Bandes d'exons dans la legende
     ys = yb + 132
+    if drawn_exons:
+        s.append('<text x="%d" y="%d" font-size="12" font-weight="bold" '
+                 'fill="#333">Exons (region)</text>' % (lx, ys))
+        ys += 22
+        for label, color in drawn_exons:
+            s.append('<rect x="%d" y="%d" width="26" height="13" fill="%s" '
+                     'opacity="0.5"/>' % (lx, ys - 11, color))
+            s.append('<text x="%d" y="%d" font-size="11" fill="#333">%s</text>'
+                     % (lx + 34, ys, html.escape(label)))
+            ys += 22
+        ys += 12
+
+    # Echelle de taille (VAF ou M)
     s.append('<text x="%d" y="%d" font-size="12" font-weight="bold" '
-             'fill="#333">Taille du point = VAF</text>' % (lx, ys))
-    scale_vaf = [(0.001, "0,1 %"), (0.005, "0,5 %"),
-                 (0.01, "1 %"), (0.02, "2 %")]
+             'fill="#333">Taille du point = %s</text>' % (lx, ys, metric_label))
+    if size_by == "m":
+        scale = [(10, "10 reads"), (50, "50 reads"),
+                 (200, "200 reads"), (1000, "1000 reads")]
+    else:
+        scale = [(0.001, "VAF 0,1 %"), (0.005, "VAF 0,5 %"),
+                 (0.01, "VAF 1 %"), (0.02, "VAF 2 %")]
     cx = lx + 13
     row_y = ys + 24
-    for vaf, label in scale_vaf:
-        r = _radius(vaf)
+    for val, label in scale:
+        r = _radius(val, size_by)
         s.append('<circle cx="%d" cy="%.1f" r="%.1f" fill="%s" '
                  'opacity="0.85"/>' % (cx, row_y, r, C_NEW))
         s.append('<text x="%d" y="%.1f" font-size="11" fill="#333">'
-                 'VAF %s</text>' % (lx + 34, row_y + 4, label))
+                 '%s</text>' % (lx + 34, row_y + 4, label))
         row_y += 26
 
     s.append('</svg>')
@@ -353,10 +452,19 @@ def main(argv=None):
                    help="Facteur de resolution du PNG (2 = ~2x, plus net).")
     p.add_argument("--all", action="store_true",
                    help="Tracer tous les variants (pas seulement DUP=oui)")
+    p.add_argument("--size-by", choices=["vaf", "m"], default="vaf",
+                   help="Metrique codee par la taille des points : 'vaf' "
+                        "(defaut) ou 'm' (nombre de reads).")
+    p.add_argument("--exons", metavar="FICHIER",
+                   help="Fichier definissant les exons a colorier : soit la "
+                        "reference FiLT3r (.fa, coordonnees lues dans les "
+                        "en-tetes), soit un BED (chrom start end [nom] [couleur]).")
     args = p.parse_args(argv)
 
     variants = _read(args.input, dup_only=not args.all)
-    svg = build_svg(variants, dup_only=not args.all)
+    exons = read_exons(args.exons) if args.exons else None
+    svg = build_svg(variants, dup_only=not args.all,
+                    size_by=args.size_by, exons=exons)
 
     # Le SVG est toujours ecrit (c'est la source). Si --out finit par .png, on
     # ecrit le SVG a cote et on rend le PNG demande.

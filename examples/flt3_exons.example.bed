@@ -1,0 +1,10 @@
+# Exemple de fichier d'exons pour plot_itd.py (--exons).
+# Format BED : chrom <TAB> start <TAB> end <TAB> nom [<TAB> couleur #rrggbb]
+#
+# ATTENTION : ces coordonnees sont des EXEMPLES (placeholders), pas les vraies
+# positions des exons FLT3. Remplacez-les par vos coordonnees, ou -- plus simple
+# et exact -- passez directement votre reference FiLT3r a --exons :
+#     python3 plot_itd.py ... --exons sequence-FLT3-Ex13-14-15-20.fa
+# (les coordonnees seront lues dans les en-tetes du FASTA).
+13	28034100	28034185	exon 14 (exemple)	#F6C177
+13	28034240	28034340	exon 15 (exemple)	#9CCFD8
