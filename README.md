@@ -119,6 +119,23 @@ python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
 
 La legende affiche l'echelle correspondante (VAF en %, ou nombre de reads).
 
+### Marquer les ITD connues NON detectees (`--missed`)
+
+Pour faire ressortir les ITD FLT3 connues (dossier CHU) que FiLT3r **n'a pas
+retrouvees**, passez le `synthese_par_patient.tsv` a `--missed` : les lignes
+`detecte=non` (avec coordonnee) sont marquees d'une **croix violette** a la
+position attendue, avec leur nomenclature HGVS.
+
+```bash
+python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
+    --missed resultats/synthese_par_patient.tsv \
+    --out resultats/carte_itd.png --scale 2
+```
+
+Utile apres un filtrage : par ex. avec `--min-vaf 0.01`, une ITD minoritaire
+(< 1 %) disparait des detections et apparait alors comme croix « ITD connue non
+detectee ». `--missed` se combine avec `--exons` et `--size-by`.
+
 ## Essayer sur les donnees d'exemple
 
 Le depot contient un jeu d'exemple (`examples/`) reproduisant vos formats :

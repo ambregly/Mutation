@@ -205,6 +205,20 @@ class TestPlot(unittest.TestCase):
         svg = plot_itd.build_svg(variants, size_by="m")
         self.assertIn("<svg", svg)
 
+    def test_read_missed(self):
+        import plot_itd
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "synthese.tsv")
+            with open(path, "w") as fh:
+                fh.write("sample\tpos\thgvs_c\tcible_filt3r\tdetecte\n")
+                fh.write("JB_15\t28034135\tc.1745_1783dup\toui\tnon\n")   # a marquer
+                fh.write("JB_05\t28034124\tc.1747_1794dup\toui\toui\n")   # detectee: ignore
+                fh.write("JB_01\t\tc.x\tnon\t?\n")                        # sans pos: ignore
+            missed = plot_itd.read_missed(path)
+        self.assertEqual(len(missed), 1)
+        self.assertEqual(missed[0]["sample"], "JB_15")
+        self.assertEqual(missed[0]["pos"], 28034135)
+
 
 def _mini_tsv():
     """Ecrit un mini variants_par_echantillon.tsv et renvoie son chemin."""

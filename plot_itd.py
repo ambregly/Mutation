@@ -67,6 +67,40 @@ def _read(path: str, dup_only: bool):
     return out
 
 
+def read_missed(path: str) -> list[dict]:
+    """Lit synthese_par_patient.tsv et renvoie les mutations connues (CHU) NON
+    detectees par FiLT3r (colonne detecte == 'non'), avec une coordonnee.
+    """
+    with open(path, encoding="utf-8", newline="") as fh:
+        rows = list(csv.reader(fh, delimiter="\t"))
+    if not rows:
+        return []
+    h = {name: i for i, name in enumerate(rows[0])}
+    need = ("sample", "pos", "detecte")
+    if not all(k in h for k in need):
+        raise SystemExit("Le fichier --missed doit etre un "
+                         "synthese_par_patient.tsv (colonnes sample, pos, detecte).")
+    out = []
+    for r in rows[1:]:
+        if not r or len(r) <= h["detecte"]:
+            continue
+        if r[h["detecte"]].strip().lower() != "non":
+            continue  # on ne marque que les connues NON detectees
+        raw_pos = r[h["pos"]] if h["pos"] < len(r) else ""
+        try:
+            pos = int(raw_pos)
+        except ValueError:
+            continue  # sans coordonnee on ne peut pas placer le point
+        out.append({
+            "sample": r[h["sample"]],
+            "pos": pos,
+            "hgvs": r[h["hgvs_c"]] if "hgvs_c" in h and h["hgvs_c"] < len(r) else "",
+            "cible": r[h["cible_filt3r"]] if "cible_filt3r" in h
+                     and h["cible_filt3r"] < len(r) else "",
+        })
+    return out
+
+
 def read_exons(path: str) -> list[dict]:
     """Lit les regions d'exons a colorier.
 
@@ -146,7 +180,7 @@ def _lanes(variants, gap_px, ytop):
     return ordered, n_lanes
 
 
-def build_svg(variants, dup_only=True, size_by="vaf", exons=None):
+def build_svg(variants, dup_only=True, size_by="vaf", exons=None, missed=None):
     samples = sorted({v["sample"] for v in variants})
     if not variants:
         raise SystemExit("Aucune duplication a tracer.")
@@ -178,6 +212,7 @@ def build_svg(variants, dup_only=True, size_by="vaf", exons=None):
 
     C_KNOWN = "#E4572E"      # ITD de reference (mise en lumiere)
     C_NEW = "#3A7BD5"        # nouveau variant
+    C_MISS = "#7B1FA2"       # ITD connue (CHU) NON detectee par FiLT3r
     C_AXIS = "#444"
     C_GRID = "#e6e6e6"
     C_BAND = "#E4572E"
@@ -294,6 +329,29 @@ def build_svg(variants, dup_only=True, size_by="vaf", exons=None):
             s.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" '
                      'opacity="%.2f"/>' % (x, y1, rr, col, min(op + 0.15, 1.0)))
 
+    # ITD connues (CHU) NON detectees par FiLT3r : croix violette.
+    sample_idx = {sm: i for i, sm in enumerate(samples)}
+    n_missed = 0
+    for mm in (missed or []):
+        i = sample_idx.get(mm["sample"])
+        if i is None:
+            continue
+        yy = y(mm["pos"])
+        if yy < MT or yy > MT + plot_h:
+            continue  # hors de la fenetre affichee
+        cx = col_x(i) + col_w / 2
+        d = 5
+        s.append('<circle cx="%.1f" cy="%.1f" r="7" fill="white" stroke="%s" '
+                 'stroke-width="2"/>' % (cx, yy, C_MISS))
+        s.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" '
+                 'stroke-width="2"/>' % (cx - d, yy - d, cx + d, yy + d, C_MISS))
+        s.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" '
+                 'stroke-width="2"/>' % (cx - d, yy + d, cx + d, yy - d, C_MISS))
+        if mm.get("hgvs"):
+            s.append('<text x="%.1f" y="%.1f" font-size="9" fill="%s">%s</text>'
+                     % (cx + 10, yy + 3, C_MISS, html.escape(mm["hgvs"])))
+        n_missed += 1
+
     # Legende
     lx = ML + plot_w + 26
     ly = MT + 6
@@ -313,6 +371,21 @@ def build_svg(variants, dup_only=True, size_by="vaf", exons=None):
         s.append('<text x="%d" y="%d" font-size="12" fill="#333">%s</text>'
                  % (lx + 34, yy + 4, label))
     yb = ly + 24 + len(items) * 24
+
+    # Entree de legende pour les ITD connues non detectees (croix violette).
+    if n_missed:
+        cy = yb
+        cx = lx + 13
+        d = 5
+        s.append('<circle cx="%d" cy="%d" r="7" fill="white" stroke="%s" '
+                 'stroke-width="2"/>' % (cx, cy, C_MISS))
+        s.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" '
+                 'stroke-width="2"/>' % (cx - d, cy - d, cx + d, cy + d, C_MISS))
+        s.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" '
+                 'stroke-width="2"/>' % (cx - d, cy + d, cx + d, cy - d, C_MISS))
+        s.append('<text x="%d" y="%d" font-size="12" fill="#333">ITD connue (CHU) '
+                 'NON detectee</text>' % (lx + 34, cy + 4))
+        yb += 26
     s.append('<rect x="%d" y="%d" width="26" height="14" fill="%s" '
              'opacity="0.13"/>' % (lx, yb, C_BAND))
     s.append('<text x="%d" y="%d" font-size="12" fill="#333">etendue de '
@@ -459,12 +532,17 @@ def main(argv=None):
                    help="Fichier definissant les exons a colorier : soit la "
                         "reference FiLT3r (.fa, coordonnees lues dans les "
                         "en-tetes), soit un BED (chrom start end [nom] [couleur]).")
+    p.add_argument("--missed", metavar="SYNTHESE",
+                   help="synthese_par_patient.tsv : marque d'une croix violette "
+                        "les ITD connues (CHU) NON detectees par FiLT3r "
+                        "(detecte=non).")
     args = p.parse_args(argv)
 
     variants = _read(args.input, dup_only=not args.all)
     exons = read_exons(args.exons) if args.exons else None
+    missed = read_missed(args.missed) if args.missed else None
     svg = build_svg(variants, dup_only=not args.all,
-                    size_by=args.size_by, exons=exons)
+                    size_by=args.size_by, exons=exons, missed=missed)
 
     # Le SVG est toujours ecrit (c'est la source). Si --out finit par .png, on
     # ecrit le SVG a cote et on rend le PNG demande.
