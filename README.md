@@ -68,16 +68,22 @@ python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
     --out resultats/carte_itd.svg
 ```
 
-Pour obtenir un **PNG** : soit `--out ...carte_itd.png`, soit `--png` (ecrit le
-PNG a cote du SVG), avec `--scale 2` pour la resolution. Le PNG utilise le
-premier outil disponible (`cairosvg`, `rsvg-convert`, `inkscape` ou un
-navigateur Chromium/Chrome) ; si aucun n'est trouve, le SVG reste produit et la
-commande de conversion manuelle est affichee.
+Formats de sortie selon l'extension de `--out` : **`.png`**, **`.pdf`** (vectoriel)
+ou **`.svg`**. Le SVG est toujours ecrit ; on peut aussi forcer avec `--png` /
+`--pdf`. La conversion utilise le premier outil disponible (`cairosvg`,
+`rsvg-convert`, `inkscape`, ou un navigateur pour le PNG) ; sinon le SVG reste
+produit et la commande d'installation est affichee.
 
 ```bash
 python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
-    --out resultats/carte_itd.png --scale 2
+    --out resultats/carte_itd.pdf          # PDF vectoriel
+python3 plot_itd.py --input resultats/variants_par_echantillon.tsv \
+    --out resultats/carte_itd.png --scale 2   # PNG (scale = resolution)
 ```
+
+> **Echelle de la legende** : la taille des points (VAF ou reads) est calee sur
+> les donnees affichees. Si vous avez filtre a `--min-vaf 0.01`, l'echelle
+> **commence a 1 %** automatiquement.
 
 - **axe Y (a gauche)** : positions du chromosome 13, de la plus basse (en haut)
   a la plus haute (en bas) ;

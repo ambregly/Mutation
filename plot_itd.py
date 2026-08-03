@@ -148,6 +148,40 @@ def read_exons(path: str) -> list[dict]:
     return exons
 
 
+def _pct(x) -> str:
+    """Formate un ratio en pourcentage (virgule francaise) : 0.005 -> '0,5 %'."""
+    p = x * 100.0
+    s = "%d" % p if p == int(p) else ("%.3f" % p).rstrip("0").rstrip(".")
+    return s.replace(".", ",") + " %"
+
+
+def _size_scale(size_by, variants):
+    """Echelle de legende adaptee : demarre a la plus petite valeur presente.
+
+    Renvoie une liste de (valeur, label). Ainsi, si les donnees sont filtrees a
+    1 % de VAF, l'echelle commence a 1 %.
+    """
+    vals = [v[size_by] for v in variants
+            if isinstance(v.get(size_by), (int, float)) and v[size_by] > 0]
+    if size_by == "m":
+        cand = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+        lo = min(vals) if vals else 10
+        hi = max(vals) if vals else 1000
+        label = lambda c: "%d reads" % c
+    else:
+        cand = [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+        lo = min(vals) if vals else 0.001
+        hi = max(vals) if vals else 0.02
+        label = lambda c: "VAF " + _pct(c)
+
+    start = next((i for i, c in enumerate(cand) if c >= lo * 0.95), 0)
+    top = max(hi * 1.05, cand[min(start + 2, len(cand) - 1)])
+    sel = [c for c in cand[start:] if c <= top][:4]
+    if len(sel) < 2:
+        sel = cand[start:start + 2] or cand[:2]
+    return [(c, label(c)) for c in sel]
+
+
 def _radius(value, size_by="vaf") -> float:
     """Rayon d'un point selon la metrique choisie (meme formule partout).
 
@@ -413,15 +447,11 @@ def build_svg(variants, dup_only=True, size_by="vaf", exons=None, missed=None):
             ys += 22
         ys += 12
 
-    # Echelle de taille (VAF ou M)
+    # Echelle de taille (VAF ou M), adaptee aux donnees : elle demarre a la plus
+    # petite valeur reellement presente (donc au seuil du filtre applique).
     s.append('<text x="%d" y="%d" font-size="12" font-weight="bold" '
              'fill="#333">Taille du point = %s</text>' % (lx, ys, metric_label))
-    if size_by == "m":
-        scale = [(10, "10 reads"), (50, "50 reads"),
-                 (200, "200 reads"), (1000, "1000 reads")]
-    else:
-        scale = [(0.001, "VAF 0,1 %"), (0.005, "VAF 0,5 %"),
-                 (0.01, "VAF 1 %"), (0.02, "VAF 2 %")]
+    scale = _size_scale(size_by, variants)
     cx = lx + 13
     row_y = ys + 24
     for val, label in scale:
@@ -436,61 +466,71 @@ def build_svg(variants, dup_only=True, size_by="vaf", exons=None, missed=None):
     return "\n".join(s)
 
 
-def svg_to_png(svg_path: str, png_path: str, scale: float = 2.0) -> str | None:
-    """Convertit un SVG en PNG avec le premier outil disponible.
+def svg_convert(svg_path: str, out_path: str, scale: float = 2.0) -> str | None:
+    """Convertit un SVG en PNG ou PDF (selon l'extension de out_path).
 
-    Essaie dans l'ordre : cairosvg (module Python), rsvg-convert, inkscape,
-    un navigateur Chromium/Chrome, puis Firefox (headless). Renvoie le nom de
-    l'outil utilise, ou None si aucun n'est disponible.
+    Essaie dans l'ordre : cairosvg (module Python), rsvg-convert, inkscape, puis
+    (PNG seulement) un navigateur Chromium/Chrome ou Firefox headless. Renvoie le
+    nom de l'outil utilise, ou None si aucun n'est disponible.
     """
     svg_path = os.path.abspath(svg_path)
-    png_path = os.path.abspath(png_path)
+    out_path = os.path.abspath(out_path)
+    fmt = "pdf" if out_path.lower().endswith(".pdf") else "png"
 
     # 1. cairosvg (pip install cairosvg)
     try:
         import cairosvg  # type: ignore
-        cairosvg.svg2png(url=svg_path, write_to=png_path, scale=scale)
+        if fmt == "pdf":
+            cairosvg.svg2pdf(url=svg_path, write_to=out_path)
+        else:
+            cairosvg.svg2png(url=svg_path, write_to=out_path, scale=scale)
         return "cairosvg"
     except Exception:
         pass
 
     # 2. rsvg-convert (paquet librsvg2-bin)
     if shutil.which("rsvg-convert"):
-        subprocess.run(["rsvg-convert", "-z", str(scale), "-o", png_path,
-                        svg_path], check=True)
+        cmd = ["rsvg-convert", "-f", fmt, "-o", out_path, svg_path]
+        if fmt == "png":
+            cmd[1:1] = ["-z", str(scale)]
+        subprocess.run(cmd, check=True)
         return "rsvg-convert"
 
     # 3. inkscape
     if shutil.which("inkscape"):
-        subprocess.run(["inkscape", svg_path, "--export-type=png",
-                        "--export-filename=" + png_path], check=True)
+        subprocess.run(["inkscape", svg_path, "--export-type=" + fmt,
+                        "--export-filename=" + out_path], check=True)
         return "inkscape"
+
+    # PDF : on s'arrete ici (les navigateurs paginent au format papier -> rogne).
+    if fmt == "pdf":
+        return None
 
     # Dimensions du SVG (pour dimensionner la fenetre du navigateur).
     w_svg, h_svg = _svg_size(svg_path)
 
-    # 4. navigateur Chromium / Chrome (headless)
+    # 4. navigateur Chromium / Chrome (headless) - PNG
     for exe in ("chromium", "chromium-browser", "google-chrome",
                 "google-chrome-stable", "chrome", "headless_shell"):
         path = shutil.which(exe)
         if path:
             subprocess.run([path, "--headless", "--no-sandbox", "--disable-gpu",
                             "--force-device-scale-factor=%s" % scale,
-                            "--screenshot=" + png_path,
+                            "--screenshot=" + out_path,
                             "--window-size=%d,%d" % (w_svg + 4, h_svg + 4),
                             "file://" + svg_path], check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return os.path.basename(path)
 
-    # 5. Firefox (headless) - resolution 1x
+    # 5. Firefox (headless) - PNG, resolution 1x
     ff = shutil.which("firefox")
     if ff:
         subprocess.run([ff, "--headless",
                         "--window-size=%d,%d" % (w_svg + 4, h_svg + 4),
-                        "--screenshot", png_path, "file://" + svg_path],
+                        "--screenshot", out_path, "file://" + svg_path],
                        check=True, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
-        if os.path.exists(png_path):
+        if os.path.exists(out_path):
             return "firefox"
 
     return None
@@ -521,6 +561,8 @@ def main(argv=None):
                         "navigateur Chromium/Chrome).")
     p.add_argument("--png", action="store_true",
                    help="Ecrire aussi un PNG a cote du SVG.")
+    p.add_argument("--pdf", action="store_true",
+                   help="Ecrire aussi un PDF (vectoriel) a cote du SVG.")
     p.add_argument("--scale", type=float, default=2.0,
                    help="Facteur de resolution du PNG (2 = ~2x, plus net).")
     p.add_argument("--all", action="store_true",
@@ -544,32 +586,39 @@ def main(argv=None):
     svg = build_svg(variants, dup_only=not args.all,
                     size_by=args.size_by, exons=exons, missed=missed)
 
-    # Le SVG est toujours ecrit (c'est la source). Si --out finit par .png, on
-    # ecrit le SVG a cote et on rend le PNG demande.
-    want_png = args.png or args.out.lower().endswith(".png")
-    svg_path = args.out[:-4] + ".svg" if args.out.lower().endswith(".png") else args.out
+    # Le SVG est toujours ecrit (c'est la source). Le format demande vient de
+    # l'extension de --out (.png/.pdf/.svg) et/ou des drapeaux --png/--pdf.
+    out_ext = os.path.splitext(args.out)[1].lower()
+    base = args.out[:-4] if out_ext in (".png", ".pdf", ".svg") else args.out
+    svg_path = base + ".svg"
     with open(svg_path, "w", encoding="utf-8") as fh:
         fh.write(svg)
     print("Figure ecrite : %s (%d duplications, %d patients)"
           % (svg_path, len(variants), len({v["sample"] for v in variants})))
 
-    if want_png:
-        png_path = (args.out if args.out.lower().endswith(".png")
-                    else svg_path[:-4] + ".png")
-        tool = svg_to_png(svg_path, png_path, scale=args.scale)
+    targets = []
+    if out_ext == ".png" or args.png:
+        targets.append(base + ".png")
+    if out_ext == ".pdf" or args.pdf:
+        targets.append(base + ".pdf")
+
+    for out_path in targets:
+        tool = svg_convert(svg_path, out_path, scale=args.scale)
         if tool:
-            print("PNG ecrit : %s (via %s)" % (png_path, tool))
+            print("%s ecrit : %s (via %s)"
+                  % (out_path[-3:].upper(), out_path, tool))
         else:
-            print("PNG non genere : aucun convertisseur trouve "
-                  "(cairosvg, rsvg-convert, inkscape, chromium/chrome, firefox).\n"
+            print("%s non genere : aucun convertisseur trouve "
+                  "(cairosvg, rsvg-convert, inkscape%s).\n"
                   "  Sans droits admin, le plus simple est un environnement "
                   "virtuel :\n"
                   "    python3 -m venv ~/venv-mut\n"
                   "    ~/venv-mut/bin/pip install cairosvg\n"
                   "    ~/venv-mut/bin/python %s --input ... --out %s\n"
-                  "  Avec sudo : apt install librsvg2-bin (fournit rsvg-convert).\n"
-                  "  Ou ouvrez simplement le SVG dans un navigateur :\n"
-                  "    %s" % (os.path.basename(__file__), png_path, svg_path))
+                  "  Avec sudo : apt install librsvg2-bin (fournit rsvg-convert)."
+                  % (out_path[-3:].upper(), out_path,
+                     "" if out_path.endswith(".pdf") else ", chromium/chrome, firefox",
+                     os.path.basename(__file__), out_path))
 
 
 if __name__ == "__main__":
